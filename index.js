@@ -62,6 +62,10 @@ async function handleAction(ctx, action) {
   }
 }
 
+bot.command('chatid', (ctx) => {
+  ctx.reply(`Chat ID: \`${ctx.chat.id}\`\nType: ${ctx.chat.type}`);
+});
+
 bot.start(async (ctx) => {
   resetConversation(ctx.chat.id);
   try {
