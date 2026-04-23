@@ -50,7 +50,7 @@ export async function appendEnrollment({
     const sheets = await getSheets();
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: 'Sheet1!A:H',
+      range: 'A:H',
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [row] },
     });
@@ -66,12 +66,12 @@ export async function ensureHeader() {
     const sheets = await getSheets();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: 'Sheet1!A1',
+      range: 'A1',
     });
     if (!res.data.values) {
       await sheets.spreadsheets.values.update({
         spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-        range: 'Sheet1!A1',
+        range: 'A1',
         valueInputOption: 'USER_ENTERED',
         requestBody: {
           values: [[
