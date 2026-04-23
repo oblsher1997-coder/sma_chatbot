@@ -219,10 +219,17 @@ bot.on('text', async (ctx) => {
     const parentChatId = await lookupParent(replyTo.message_id);
     if (!parentChatId) return;
 
+    const rawText = ctx.message.text.trim();
+    if (!rawText.startsWith('!') || !rawText.endsWith('!')) {
+      await ctx.reply('⚠️ Сообщение не отправлено. Оберните текст в ! чтобы отправить родителю, например: !Ваш ответ!');
+      return;
+    }
+    const messageToParent = rawText.slice(1, -1).trim();
+
     try {
       await bot.telegram.sendMessage(
         parentChatId,
-        `Ответ от учителя:\n\n${ctx.message.text}`
+        `Ответ от учителя:\n\n${messageToParent}`
       );
       await ctx.reply('✅ Ответ отправлен родителю.');
     } catch (err) {
