@@ -10,13 +10,27 @@ import {
   getStats, buildStatsMessage,
 } from './analytics.js';
 import { scheduleReminder, cancelReminder } from './reminder.js';
+import { appendEnrollment, ensureHeader } from './sheets.js';
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID ? String(process.env.ADMIN_CHAT_ID) : null;
 
+// Store enrollment data per chatId until payment method is chosen
+const pendingEnrollments = new Map();
+
+// Strip markdown asterisks/underscores the AI might accidentally include
+function stripMarkdown(text) {
+  return text
+    .replace(/\*\*(.*?)\*\*/gs, '$1')
+    .replace(/\*(.*?)\*/gs, '$1')
+    .replace(/__(.*?)__/gs, '$1')
+    .replace(/_(.*?)_/gs, '$1');
+}
+
 async function sendReply(ctx, text) {
   if (!text) return;
-  const chunks = text.match(/[\s\S]{1,4000}/g) ?? [text];
+  const clean = stripMarkdown(text);
+  const chunks = clean.match(/[\s\S]{1,4000}/g) ?? [clean];
   for (const chunk of chunks) {
     await ctx.reply(chunk);
   }
@@ -28,24 +42,30 @@ async function handleAction(ctx, action) {
 
   switch (action.type) {
     case 'SEND_PAYMENT': {
-      const paymeLink = process.env.PAYME_LINK || 'https://payme.uz';
-      const clickLink = process.env.CLICK_LINK || 'https://click.uz';
-      await ctx.reply('💳 Выберите способ оплаты / To\'lov usulini tanlang:', {
-        reply_markup: {
-          inline_keyboard: [[
-            { text: '💚 Payme', url: paymeLink },
-            { text: '💵 Наличные / Naqd', callback_data: 'cash' },
-          ]],
-        },
-      });
-      await trackConversion(chatId, {
+      const enrollment = {
         childName: action.childName,
         childBirthYear: action.childBirthYear,
         parentName: action.parentName,
         parentPhone: action.parentPhone,
         group: action.group,
-        at: new Date().toISOString(),
+        chatId,
+      };
+      // Save enrollment data so cash callback can use it
+      pendingEnrollments.set(chatId, enrollment);
+
+      const paymeLink = process.env.PAYME_LINK || 'https://payme.uz';
+      await ctx.reply('Выберите способ оплаты:', {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '💚 Payme', url: paymeLink },
+            { text: '💵 Наличные', callback_data: `cash_${chatId}` },
+          ]],
+        },
       });
+
+      // Log Payme option to sheets (payment link sent)
+      await appendEnrollment({ ...enrollment, paymentMethod: 'Payme (ссылка отправлена)' });
+      await trackConversion(chatId, { ...enrollment, paymentMethod: 'Payme' });
       break;
     }
 
@@ -62,12 +82,7 @@ async function handleAction(ctx, action) {
 
     case 'WAITLIST': {
       try {
-        await addToWaitlist({
-          chatId,
-          name: action.name,
-          phone: action.phone,
-          preferred_time: action.preferred_time,
-        });
+        await addToWaitlist({ chatId, name: action.name, phone: action.phone, preferred_time: action.preferred_time });
       } catch (err) {
         console.error('[waitlist] Failed to save entry:', err.message);
       }
@@ -98,24 +113,22 @@ async function handleAction(ctx, action) {
 
 // /stats — admin only
 bot.command('stats', async (ctx) => {
-  const requesterId = String(ctx.chat.id);
-  if (ADMIN_CHAT_ID && requesterId !== ADMIN_CHAT_ID) {
-    await ctx.reply('⛔ Нет доступа.');
+  if (ADMIN_CHAT_ID && String(ctx.chat.id) !== ADMIN_CHAT_ID) {
+    await ctx.reply('Нет доступа.');
     return;
   }
   try {
     const data = await getStats();
-    const msg = buildStatsMessage(data);
-    await ctx.reply(msg, { parse_mode: 'Markdown' });
+    await ctx.reply(buildStatsMessage(data));
   } catch (err) {
     console.error('[stats] Error:', err.message);
     await ctx.reply('Ошибка при загрузке статистики.');
   }
 });
 
-// /chatid — helper to find group chat ID
+// /chatid — helper
 bot.command('chatid', (ctx) => {
-  ctx.reply(`Chat ID: \`${ctx.chat.id}\`\nType: ${ctx.chat.type}`, { parse_mode: 'Markdown' });
+  ctx.reply(`Chat ID: ${ctx.chat.id}\nType: ${ctx.chat.type}`);
 });
 
 // /start
@@ -129,7 +142,6 @@ bot.start(async (ctx) => {
     const { message, action } = await chat(chatId, '/start');
     await sendReply(ctx, message);
     await handleAction(ctx, action);
-    // Schedule reminder in case parent goes silent
     scheduleReminder(chatId, async (text) => {
       const user = await getUserData(chatId);
       if (user && !user.reminded && !['converted', 'escalated'].includes(user.stage)) {
@@ -146,8 +158,6 @@ bot.start(async (ctx) => {
 // All text messages
 bot.on('text', async (ctx) => {
   const chatId = ctx.chat.id;
-
-  // Cancel any pending reminder — user is active
   cancelReminder(chatId);
   await trackMessage(chatId);
 
@@ -157,7 +167,6 @@ bot.on('text', async (ctx) => {
     await sendReply(ctx, message);
     await handleAction(ctx, action);
 
-    // Re-schedule reminder after bot replies (user might go silent now)
     const user = await getUserData(chatId);
     if (user && !user.reminded && !['converted', 'escalated'].includes(user?.stage)) {
       scheduleReminder(chatId, async (text) => {
@@ -174,16 +183,45 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// Cash payment callback
+// Cash payment button
 bot.on('callback_query', async (ctx) => {
-  if (ctx.callbackQuery.data === 'cash') {
-    await ctx.answerCbQuery();
-    await ctx.reply(
-      'Отлично! Оплата наличными принимается в офисе академии. ' +
-      'Наш администратор свяжется с вами для уточнения деталей. 🤝'
-    );
+  const data = ctx.callbackQuery.data;
+  if (!data?.startsWith('cash_')) return;
+
+  await ctx.answerCbQuery();
+
+  const chatId = ctx.chat.id;
+  const enrollment = pendingEnrollments.get(chatId) || {};
+
+  // Notify teacher group
+  const teacherMsg =
+    `💵 Запись на оплату наличными\n\n` +
+    `👤 Родитель: ${enrollment.parentName || '—'}\n` +
+    `📞 Телефон: ${enrollment.parentPhone || '—'}\n` +
+    `👶 Ребёнок: ${enrollment.childName || '—'}, ${enrollment.childBirthYear || '—'} г.р.\n` +
+    `📚 Группа: ${enrollment.group || '—'}`;
+
+  try {
+    await notifyTeacher(ctx.telegram, {
+      name: enrollment.parentName,
+      phone: enrollment.parentPhone,
+      age: enrollment.childBirthYear,
+      question: `Хочет оплатить наличными. Группа: ${enrollment.group || '—'}. Ребёнок: ${enrollment.childName || '—'}`,
+    });
+  } catch (err) {
+    console.error('[cash] Failed to notify teacher:', err.message);
   }
+
+  // Log to Google Sheets
+  await appendEnrollment({ ...enrollment, paymentMethod: 'Наличные' });
+
+  await ctx.reply(
+    'Отлично! Наш администратор свяжется с вами в ближайшее время для подтверждения оплаты наличными. 🤝'
+  );
 });
+
+// Init sheets header on startup
+ensureHeader().catch(() => {});
 
 bot.launch({ dropPendingUpdates: true });
 console.log('✅ SpeakMotion bot is running');
