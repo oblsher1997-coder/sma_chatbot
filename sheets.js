@@ -28,7 +28,7 @@ function isConfigured() {
 }
 
 export async function appendEnrollment({
-  childName, childBirthYear, parentName, parentPhone,
+  childName, childBirthDate, childBirthYear, parentName, parentPhone,
   group, paymentMethod, chatId,
 }) {
   if (!isConfigured()) return;
@@ -37,13 +37,13 @@ export async function appendEnrollment({
 
   const row = [
     now,
-    childName     || '—',
-    childBirthYear || '—',
-    parentName    || '—',
-    parentPhone   || '—',
-    group         || '—',
-    paymentMethod || '—',
-    String(chatId || ''),
+    childName      || '—',
+    childBirthDate || childBirthYear || '—',
+    parentName     || '—',
+    parentPhone    || '—',
+    group          || '—',
+    paymentMethod  || '—',
+    String(chatId  || ''),
   ];
 
   try {
@@ -75,7 +75,7 @@ export async function ensureHeader() {
         valueInputOption: 'USER_ENTERED',
         requestBody: {
           values: [[
-            'Дата/время', 'Имя ребёнка', 'Год рождения', 'Имя родителя',
+            'Дата/время', 'Имя ребёнка', 'Дата рождения', 'Имя родителя',
             'Телефон', 'Группа', 'Способ оплаты', 'Chat ID',
           ]],
         },

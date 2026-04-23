@@ -11,14 +11,40 @@ import {
 } from './analytics.js';
 import { scheduleReminder, cancelReminder } from './reminder.js';
 import { appendEnrollment, ensureHeader } from './sheets.js';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPLY_MAP_PATH = path.join(__dirname, 'reply_map.json');
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID ? String(process.env.ADMIN_CHAT_ID) : null;
+const TEACHER_GROUP_CHAT_ID = process.env.TEACHER_GROUP_CHAT_ID;
 
-// Store enrollment data per chatId until payment method is chosen
+// pending enrollment data per chatId
 const pendingEnrollments = new Map();
 
-// Strip markdown asterisks/underscores the AI might accidentally include
+// ─── Reply map (group message ID → parent chat ID) ──────────────────────────
+async function loadReplyMap() {
+  try {
+    return JSON.parse(await fs.readFile(REPLY_MAP_PATH, 'utf8'));
+  } catch { return {}; }
+}
+async function saveReplyMap(map) {
+  await fs.writeFile(REPLY_MAP_PATH, JSON.stringify(map, null, 2));
+}
+async function registerReply(groupMsgId, parentChatId) {
+  const map = await loadReplyMap();
+  map[String(groupMsgId)] = String(parentChatId);
+  await saveReplyMap(map);
+}
+async function lookupParent(groupMsgId) {
+  const map = await loadReplyMap();
+  return map[String(groupMsgId)] || null;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 function stripMarkdown(text) {
   return text
     .replace(/\*\*(.*?)\*\*/gs, '$1')
@@ -36,6 +62,7 @@ async function sendReply(ctx, text) {
   }
 }
 
+// ─── Action dispatcher ───────────────────────────────────────────────────────
 async function handleAction(ctx, action) {
   if (!action) return;
   const chatId = ctx.chat.id;
@@ -44,13 +71,12 @@ async function handleAction(ctx, action) {
     case 'SEND_PAYMENT': {
       const enrollment = {
         childName: action.childName,
-        childBirthYear: action.childBirthYear,
+        childBirthDate: action.childBirthDate ?? action.childBirthYear,
         parentName: action.parentName,
         parentPhone: action.parentPhone,
         group: action.group,
         chatId,
       };
-      // Save enrollment data so cash callback can use it
       pendingEnrollments.set(chatId, enrollment);
 
       const paymeLink = process.env.PAYME_LINK || 'https://payme.uz';
@@ -63,7 +89,6 @@ async function handleAction(ctx, action) {
         },
       });
 
-      // Log Payme option to sheets (payment link sent)
       await appendEnrollment({ ...enrollment, paymentMethod: 'Payme (ссылка отправлена)' });
       await trackConversion(chatId, { ...enrollment, paymentMethod: 'Payme' });
       break;
@@ -71,8 +96,17 @@ async function handleAction(ctx, action) {
 
     case 'ESCALATE': {
       try {
-        await notifyTeacher(ctx.telegram, action);
-        console.log('[escalate] Teacher notified for chat', chatId);
+        const sent = await bot.telegram.sendMessage(
+          TEACHER_GROUP_CHAT_ID,
+          `🔔 Новая заявка требует внимания\n\n` +
+          `👤 Имя: ${action.name ?? '—'}\n` +
+          `📞 Телефон: ${action.phone ?? '—'}\n` +
+          `👶 Возраст ребёнка: ${action.age ?? '—'}\n` +
+          `❓ Вопрос: ${action.question ?? '—'}`
+        );
+        // Map group message ID → parent chat ID for reply-through feature
+        await registerReply(sent.message_id, chatId);
+        console.log('[escalate] Teacher notified, msg_id:', sent.message_id);
       } catch (err) {
         console.error('[escalate] Failed to notify teacher:', err.message);
       }
@@ -90,28 +124,26 @@ async function handleAction(ctx, action) {
       break;
     }
 
-    case 'MILESTONE': {
+    case 'MILESTONE':
       if (action.stage) {
         await trackStage(chatId, action.stage);
         console.log(`[milestone] Chat ${chatId} → ${action.stage}`);
       }
       break;
-    }
 
-    case 'DROPOUT': {
+    case 'DROPOUT':
       if (action.reason) {
         await trackDropout(chatId, action.reason);
         console.log(`[dropout] Chat ${chatId} reason: ${action.reason}`);
       }
       break;
-    }
 
     default:
       console.warn('[action] Unknown action type:', action.type);
   }
 }
 
-// /stats — admin only
+// ─── Commands ────────────────────────────────────────────────────────────────
 bot.command('stats', async (ctx) => {
   if (ADMIN_CHAT_ID && String(ctx.chat.id) !== ADMIN_CHAT_ID) {
     await ctx.reply('Нет доступа.');
@@ -121,25 +153,39 @@ bot.command('stats', async (ctx) => {
     const data = await getStats();
     await ctx.reply(buildStatsMessage(data));
   } catch (err) {
-    console.error('[stats] Error:', err.message);
     await ctx.reply('Ошибка при загрузке статистики.');
   }
 });
 
-// /chatid — helper
 bot.command('chatid', (ctx) => {
   ctx.reply(`Chat ID: ${ctx.chat.id}\nType: ${ctx.chat.type}`);
 });
 
-// /start
+// ─── /start ──────────────────────────────────────────────────────────────────
 bot.start(async (ctx) => {
+  // Only handle private chats
+  if (ctx.chat.type !== 'private') return;
+
   const chatId = ctx.chat.id;
+  const isAdmin = ADMIN_CHAT_ID && String(chatId) === ADMIN_CHAT_ID;
+
   cancelReminder(chatId);
   resetConversation(chatId);
-  await trackSession(chatId);
 
+  if (isAdmin) {
+    await ctx.reply(
+      'Привет! Вы вошли как администратор SpeakMotion Academy.\n\n' +
+      'Доступные команды:\n' +
+      '/stats — статистика бота\n' +
+      '/chatid — ID этого чата\n\n' +
+      'Напишите любой вопрос — я отвечу в режиме администратора.'
+    );
+    return;
+  }
+
+  await trackSession(chatId);
   try {
-    const { message, action } = await chat(chatId, '/start');
+    const { message, action } = await chat(chatId, '/start', false);
     await sendReply(ctx, message);
     await handleAction(ctx, action);
     scheduleReminder(chatId, async (text) => {
@@ -155,27 +201,61 @@ bot.start(async (ctx) => {
   }
 });
 
-// All text messages
+// ─── Text messages ───────────────────────────────────────────────────────────
 bot.on('text', async (ctx) => {
+  const chatType = ctx.chat.type;
   const chatId = ctx.chat.id;
+
+  // ── Teacher group: handle replies to escalation messages ──
+  if (chatType === 'group' || chatType === 'supergroup') {
+    if (String(chatId) !== String(TEACHER_GROUP_CHAT_ID)) return;
+
+    const replyTo = ctx.message.reply_to_message;
+    if (!replyTo) return; // ignore non-reply messages in group
+
+    // Only react to replies to the bot's own messages
+    if (replyTo.from?.id !== ctx.botInfo.id) return;
+
+    const parentChatId = await lookupParent(replyTo.message_id);
+    if (!parentChatId) return;
+
+    try {
+      await bot.telegram.sendMessage(
+        parentChatId,
+        `Ответ от учителя:\n\n${ctx.message.text}`
+      );
+      await ctx.reply('✅ Ответ отправлен родителю.');
+    } catch (err) {
+      console.error('[reply-forward] Failed:', err.message);
+      await ctx.reply('❌ Не удалось отправить ответ родителю.');
+    }
+    return;
+  }
+
+  // ── Private chat only from here ──
+  if (chatType !== 'private') return;
+
+  const isAdmin = ADMIN_CHAT_ID && String(chatId) === ADMIN_CHAT_ID;
   cancelReminder(chatId);
-  await trackMessage(chatId);
+
+  if (!isAdmin) await trackMessage(chatId);
 
   try {
     await ctx.sendChatAction('typing');
-    const { message, action } = await chat(chatId, ctx.message.text);
+    const { message, action } = await chat(chatId, ctx.message.text, isAdmin);
     await sendReply(ctx, message);
-    await handleAction(ctx, action);
-
-    const user = await getUserData(chatId);
-    if (user && !user.reminded && !['converted', 'escalated'].includes(user?.stage)) {
-      scheduleReminder(chatId, async (text) => {
-        const fresh = await getUserData(chatId);
-        if (fresh && !fresh.reminded && !['converted', 'escalated'].includes(fresh.stage)) {
-          await ctx.reply(text);
-          await setReminded(chatId);
-        }
-      });
+    if (!isAdmin) {
+      await handleAction(ctx, action);
+      const user = await getUserData(chatId);
+      if (user && !user.reminded && !['converted', 'escalated'].includes(user?.stage)) {
+        scheduleReminder(chatId, async (text) => {
+          const fresh = await getUserData(chatId);
+          if (fresh && !fresh.reminded && !['converted', 'escalated'].includes(fresh.stage)) {
+            await ctx.reply(text);
+            await setReminded(chatId);
+          }
+        });
+      }
     }
   } catch (err) {
     console.error('[message] Error:', err.message);
@@ -183,44 +263,34 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// Cash payment button
+// ─── Cash payment callback ───────────────────────────────────────────────────
 bot.on('callback_query', async (ctx) => {
   const data = ctx.callbackQuery.data;
   if (!data?.startsWith('cash_')) return;
-
   await ctx.answerCbQuery();
 
   const chatId = ctx.chat.id;
   const enrollment = pendingEnrollments.get(chatId) || {};
 
-  // Notify teacher group
-  const teacherMsg =
-    `💵 Запись на оплату наличными\n\n` +
-    `👤 Родитель: ${enrollment.parentName || '—'}\n` +
-    `📞 Телефон: ${enrollment.parentPhone || '—'}\n` +
-    `👶 Ребёнок: ${enrollment.childName || '—'}, ${enrollment.childBirthYear || '—'} г.р.\n` +
-    `📚 Группа: ${enrollment.group || '—'}`;
-
   try {
-    await notifyTeacher(ctx.telegram, {
-      name: enrollment.parentName,
-      phone: enrollment.parentPhone,
-      age: enrollment.childBirthYear,
-      question: `Хочет оплатить наличными. Группа: ${enrollment.group || '—'}. Ребёнок: ${enrollment.childName || '—'}`,
-    });
+    const sent = await bot.telegram.sendMessage(
+      TEACHER_GROUP_CHAT_ID,
+      `💵 Оплата наличными\n\n` +
+      `👤 Родитель: ${enrollment.parentName || '—'}\n` +
+      `📞 Телефон: ${enrollment.parentPhone || '—'}\n` +
+      `👶 Ребёнок: ${enrollment.childName || '—'}, ${enrollment.childBirthDate || '—'}\n` +
+      `📚 Группа: ${enrollment.group || '—'}`
+    );
+    await registerReply(sent.message_id, chatId);
   } catch (err) {
     console.error('[cash] Failed to notify teacher:', err.message);
   }
 
-  // Log to Google Sheets
   await appendEnrollment({ ...enrollment, paymentMethod: 'Наличные' });
-
-  await ctx.reply(
-    'Отлично! Наш администратор свяжется с вами в ближайшее время для подтверждения оплаты наличными. 🤝'
-  );
+  await ctx.reply('Отлично! Наш администратор свяжется с вами в ближайшее время для подтверждения оплаты. 🤝');
 });
 
-// Init sheets header on startup
+// ─── Boot ─────────────────────────────────────────────────────────────────────
 ensureHeader().catch(() => {});
 
 bot.launch({ dropPendingUpdates: true });
