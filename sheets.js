@@ -4,7 +4,6 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SPREADSHEET_ID = process.env.GOOGLE_SHEETS_ID;
 const CREDENTIALS_PATH = path.join(__dirname, 'google-credentials.json');
 
 async function getSheets() {
@@ -16,7 +15,8 @@ async function getSheets() {
 }
 
 function isConfigured() {
-  if (!SPREADSHEET_ID) {
+  // Read env var at call time (not at module load) so dotenv has time to run
+  if (!process.env.GOOGLE_SHEETS_ID) {
     console.warn('[sheets] GOOGLE_SHEETS_ID not set — skipping');
     return false;
   }
@@ -49,7 +49,7 @@ export async function appendEnrollment({
   try {
     const sheets = await getSheets();
     await sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
       range: 'Sheet1!A:H',
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [row] },
@@ -65,12 +65,12 @@ export async function ensureHeader() {
   try {
     const sheets = await getSheets();
     const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
       range: 'Sheet1!A1',
     });
     if (!res.data.values) {
       await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
         range: 'Sheet1!A1',
         valueInputOption: 'USER_ENTERED',
         requestBody: {
