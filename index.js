@@ -68,29 +68,38 @@ async function handleAction(ctx, action) {
   const chatId = ctx.chat.id;
 
   switch (action.type) {
-    case 'SEND_PAYMENT': {
-      const enrollment = {
-        childName: action.childName,
-        childBirthDate: action.childBirthDate ?? action.childBirthYear,
-        parentName: action.parentName,
-        parentPhone: action.parentPhone,
-        group: action.group,
+    case 'BOOK_CONSULTATION': {
+      const booking = {
+        childName:     action.childName,
+        childBirthDate: action.childBirthDate,
+        parentName:    action.parentName,
+        parentPhone:   action.parentPhone,
+        group:         action.group,
+        format:        action.format ?? 'не указан',
         chatId,
       };
-      pendingEnrollments.set(chatId, enrollment);
+      pendingEnrollments.set(chatId, booking);
 
-      const paymeLink = process.env.PAYME_LINK || 'https://payme.uz';
-      await ctx.reply('Выберите способ оплаты:', {
-        reply_markup: {
-          inline_keyboard: [[
-            { text: '💚 Payme', url: paymeLink },
-            { text: '💵 Наличные', callback_data: `cash_${chatId}` },
-          ]],
-        },
-      });
+      // Notify teacher group
+      try {
+        const sent = await bot.telegram.sendMessage(
+          TEACHER_GROUP_CHAT_ID,
+          `📅 Запись на бесплатную консультацию\n\n` +
+          `👶 Ребёнок: ${booking.childName || '—'}, ${booking.childBirthDate || '—'}\n` +
+          `👤 Родитель: ${booking.parentName || '—'}\n` +
+          `📞 Телефон: ${booking.parentPhone || '—'}\n` +
+          `📚 Группа интереса: ${booking.group || '—'}\n` +
+          `💻 Формат: ${booking.format}`
+        );
+        await registerReply(sent.message_id, chatId);
+        console.log('[consultation] Booked, msg_id:', sent.message_id);
+      } catch (err) {
+        console.error('[consultation] Failed to notify teacher:', err.message);
+      }
 
-      await appendEnrollment({ ...enrollment, paymentMethod: 'Payme (ссылка отправлена)' });
-      await trackConversion(chatId, { ...enrollment, paymentMethod: 'Payme' });
+      // Log to Google Sheets
+      await appendEnrollment({ ...booking, paymentMethod: `Консультация (${booking.format})` });
+      await trackConversion(chatId, booking);
       break;
     }
 
@@ -270,31 +279,9 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// ─── Cash payment callback ───────────────────────────────────────────────────
+// ─── Callback queries (legacy, kept for safety) ──────────────────────────────
 bot.on('callback_query', async (ctx) => {
-  const data = ctx.callbackQuery.data;
-  if (!data?.startsWith('cash_')) return;
   await ctx.answerCbQuery();
-
-  const chatId = ctx.chat.id;
-  const enrollment = pendingEnrollments.get(chatId) || {};
-
-  try {
-    const sent = await bot.telegram.sendMessage(
-      TEACHER_GROUP_CHAT_ID,
-      `💵 Оплата наличными\n\n` +
-      `👤 Родитель: ${enrollment.parentName || '—'}\n` +
-      `📞 Телефон: ${enrollment.parentPhone || '—'}\n` +
-      `👶 Ребёнок: ${enrollment.childName || '—'}, ${enrollment.childBirthDate || '—'}\n` +
-      `📚 Группа: ${enrollment.group || '—'}`
-    );
-    await registerReply(sent.message_id, chatId);
-  } catch (err) {
-    console.error('[cash] Failed to notify teacher:', err.message);
-  }
-
-  await appendEnrollment({ ...enrollment, paymentMethod: 'Наличные' });
-  await ctx.reply('Отлично! Наш администратор свяжется с вами в ближайшее время для подтверждения оплаты. 🤝');
 });
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
