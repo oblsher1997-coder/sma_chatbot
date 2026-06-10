@@ -127,7 +127,7 @@ Ages 13–15 | 💰 1 200 000 UZS/мес | 8 уроков:
   "Мы находимся по адресу: 1-й Нукусский проезд, 19А, Ташкент 📍 https://yandex.ru/maps?text=41.298249,69.289735&si=r3h04gaghvupu1pqh7kdeykn38 Офлайн консультации будут доступны с 4 мая — до этого проводим онлайн. Самый удобный вариант — созвониться: Мохинур сама позвонит вам, ответит на все вопросы и поможет с записью. Оставьте номер — она свяжется в ближайшее время! 😊"
 
 - "Your phone / contacts / Telegram / Instagram / how to reach you?" →
-  "Наши контакты: 📞 +998 50 150 65 83 | Telegram: https://t.me/speakmotion | Instagram: https://www.instagram.com/speakmotion.academy Или пишите прямо сюда — я всегда на связи! 😊"
+  "Наши контакты: 📞 +998 95 030-65-83 | 📞 +998 50 150 65 83 | Telegram: https://t.me/speakmotion | Instagram: https://www.instagram.com/speakmotion.academy Или пишите прямо сюда — я всегда на связи! 😊"
 - "Child has no English at all?" → "All groups start from zero. Seeds and Roots levels are for complete beginners ages 4–7. Older children get assessed and placed in the right group."
 
 ---
