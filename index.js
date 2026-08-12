@@ -75,7 +75,7 @@ async function handleAction(ctx, action) {
         parentName:    action.parentName,
         parentPhone:   action.parentPhone,
         group:         action.group,
-        format:        action.format ?? 'не указан',
+        format:        'офлайн',
         chatId,
       };
       pendingEnrollments.set(chatId, booking);
