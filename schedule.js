@@ -1,26 +1,27 @@
+// Reference schedule data. The AI uses the schedule embedded in deepseek.js
+// system prompt — keep both in sync when the timetable changes.
+
 export const GROUPS = [
-  // Teacher: Mokhinur — weekday groups (available)
-  { id: 1,  teacher: 'Мохинур', ageMin: 4,  ageMax: 5,  days: 'Пн/Ср/Пт', time: '10:00', room: 'A', lessonsPerMonth: 12, available: true },
-  { id: 2,  teacher: 'Мохинур', ageMin: 4,  ageMax: 5,  days: 'Пн/Ср/Пт', time: '14:00', room: 'A', lessonsPerMonth: 12, available: true },
-  { id: 3,  teacher: 'Мохинур', ageMin: 6,  ageMax: 7,  days: 'Пн/Ср/Пт', time: '15:30', room: 'A', lessonsPerMonth: 12, available: true },
-  { id: 4,  teacher: 'Мохинур', ageMin: 7,  ageMax: 8,  days: 'Пн/Ср/Пт', time: '17:00', room: 'A', lessonsPerMonth: 12, available: true },
-  { id: 10, teacher: 'Мохинур', ageMin: 10, ageMax: 12, days: 'Вт/Чт',    time: '14:20', room: 'C', lessonsPerMonth: 8,  available: true },
-  { id: 11, teacher: 'Мохинур', ageMin: 9,  ageMax: 10, days: 'Вт/Чт',    time: '16:00', room: 'C', lessonsPerMonth: 8,  available: true },
-  { id: 12, teacher: 'Мохинур', ageMin: 13, ageMax: 15, days: 'Вт/Чт',    time: '17:20', room: 'C', lessonsPerMonth: 8,  available: true },
+  // Teacher: Mokhinur — Mon/Wed/Fri (12 lessons/mo)
+  { id: 1,  teacher: 'Мохинур', level: 'Seedings',  ageMin: 5,  ageMax: 6,  days: 'Пн/Ср/Пт', time: '10:00–11:00', lessonsPerMonth: 12, price: 1800000 },
+  { id: 2,  teacher: 'Мохинур', level: 'Explorers', ageMin: 6,  ageMax: 7,  days: 'Пн/Ср/Пт', time: '14:00–15:00', lessonsPerMonth: 12, price: 1800000 },
+  { id: 3,  teacher: 'Мохинур', level: 'Explorers', ageMin: 6,  ageMax: 7,  days: 'Пн/Ср/Пт', time: '15:30–16:30', lessonsPerMonth: 12, price: 1800000 },
+  { id: 4,  teacher: 'Мохинур', level: 'Voyagers',  ageMin: 7,  ageMax: 8,  days: 'Пн/Ср/Пт', time: '17:00–18:00', lessonsPerMonth: 12, price: 1800000 },
 
-  // Teacher: Maftuna — weekday+Saturday groups (available)
-  { id: 5,  teacher: 'Мафтуна', ageMin: 4,  ageMax: 5,  days: 'Вт/Чт/Сб', time: '10:00', room: 'A', lessonsPerMonth: 12, available: true },
-  { id: 6,  teacher: 'Мафтуна', ageMin: 6,  ageMax: 7,  days: 'Вт/Чт/Сб', time: '11:30', room: 'A', lessonsPerMonth: 12, available: true },
-  { id: 7,  teacher: 'Мафтуна', ageMin: 6,  ageMax: 7,  days: 'Вт/Чт/Сб', time: '14:00', room: 'A', lessonsPerMonth: 12, available: true },
-  { id: 8,  teacher: 'Мафтуна', ageMin: 7,  ageMax: 8,  days: 'Вт/Чт/Сб', time: '15:30', room: 'A', lessonsPerMonth: 12, available: true },
-  { id: 9,  teacher: 'Мафтуна', ageMin: 9,  ageMax: 10, days: 'Вт/Чт/Сб', time: '17:00', room: 'B', lessonsPerMonth: 12, available: true },
+  // Teacher: Maftuna — Tue/Thu/Sat (12 lessons/mo)
+  { id: 5,  teacher: 'Мафтуна', level: 'Explorers', ageMin: 6,  ageMax: 7,  days: 'Вт/Чт/Сб', time: '10:00–11:00', lessonsPerMonth: 12, price: 1800000 },
+  { id: 6,  teacher: 'Мафтуна', level: 'Voyagers',  ageMin: 7,  ageMax: 8,  days: 'Вт/Чт/Сб', time: '14:00–15:00', lessonsPerMonth: 12, price: 1800000 },
+  { id: 7,  teacher: 'Мафтуна', level: 'Achievers', ageMin: 9,  ageMax: 10, days: 'Вт/Чт/Сб', time: '11:30–12:30', lessonsPerMonth: 12, price: 1800000 },
+  { id: 8,  teacher: 'Мафтуна', level: 'Achievers', ageMin: 9,  ageMax: 10, days: 'Вт/Чт/Сб', time: '16:00–17:00', lessonsPerMonth: 12, price: 1800000 },
 
-  // Sat/Sun groups — FULL, never offered to parents
-  { id: 13, teacher: 'Мохинур', ageMin: 6,  ageMax: 7,  days: 'Сб/Вс', time: '12:00', room: 'A', lessonsPerMonth: 8,  available: false },
-  { id: 14, teacher: 'Мохинур', ageMin: 9,  ageMax: 10, days: 'Сб/Вс', time: '13:30', room: 'B', lessonsPerMonth: 8,  available: false },
-  { id: 15, teacher: 'Мохинур', ageMin: 7,  ageMax: 8,  days: 'Сб/Вс', time: '15:00', room: 'A', lessonsPerMonth: 8,  available: false },
+  // Teacher: Mokhinur — Tue/Thu (8 lessons/mo)
+  { id: 9,  teacher: 'Мохинур', level: 'Masters',   ageMin: 10, ageMax: 12, days: 'Вт/Чт', time: '14:20–15:20', lessonsPerMonth: 8, price: 1200000 },
+  { id: 10, teacher: 'Мохинур', level: 'Achievers', ageMin: 9,  ageMax: 10, days: 'Вт/Чт', time: '16:00–17:00', lessonsPerMonth: 8, price: 1200000 },
+  { id: 11, teacher: 'Мохинур', level: 'Pioneers',  ageMin: 13, ageMax: 15, days: 'Вт/Чт', time: '17:20–18:40', lessonsPerMonth: 8, price: 1200000 },
+  { id: 12, teacher: 'Мохинур', level: 'Achievers', ageMin: 9,  ageMax: 10, days: 'Вт/Чт', time: '10:30–11:30', lessonsPerMonth: 8, price: 1200000 },
+  { id: 13, teacher: 'Мохинур', level: 'Voyagers',  ageMin: 7,  ageMax: 8,  days: 'Вт/Чт', time: '12:00–13:00', lessonsPerMonth: 8, price: 1200000 },
 ];
 
 export function getGroupsForAge(age) {
-  return GROUPS.filter(g => g.available && age >= g.ageMin && age <= g.ageMax);
+  return GROUPS.filter(g => age >= g.ageMin && age <= g.ageMax);
 }
