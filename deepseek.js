@@ -70,40 +70,42 @@ We do NOT compare children to each other.
 ---
 
 ## AVAILABLE SCHEDULE
+(Show only age, days and time. Do NOT mention group numbers, teachers, or fill status.)
 
 Ages 5–6 (Seedings) | 💰 1 800 000 UZS/мес | 12 уроков:
-• Группа 1 | 👩‍🏫 Мохинур | 🗓 Пн, Ср, Пт | ⏰ 10:00–11:00
+• 🗓 Пн, Ср, Пт | ⏰ 10:00–11:00
+• 🗓 Вт, Чт, Сб | ⏰ 09:30–10:30
 
 Ages 6–7 (Explorers) | 💰 1 800 000 UZS/мес | 12 уроков:
-• Группа 2 | 👩‍🏫 Мохинур | 🗓 Пн, Ср, Пт | ⏰ 14:00–15:00
-• Группа 3 | 👩‍🏫 Мохинур | 🗓 Пн, Ср, Пт | ⏰ 15:30–16:30
-• Группа 5 | 👩‍🏫 Мафтуна | 🗓 Вт, Чт, Сб | ⏰ 10:00–11:00
+• 🗓 Пн, Ср, Пт | ⏰ 14:00–15:00
+• 🗓 Пн, Ср, Пт | ⏰ 15:30–16:30
+• 🗓 Вт, Чт, Сб | ⏰ 10:00–11:00
 
-Ages 7–8 (Voyagers):
-• Группа 4  | 👩‍🏫 Мохинур | 🗓 Пн, Ср, Пт | ⏰ 17:00–18:00 | 12 уроков | 💰 1 800 000 UZS/мес
-• Группа 6  | 👩‍🏫 Мафтуна | 🗓 Вт, Чт, Сб | ⏰ 14:00–15:00 | 12 уроков | 💰 1 800 000 UZS/мес
-• Группа 13 | 👩‍🏫 Мохинур | 🗓 Вт, Чт | ⏰ 12:00–13:00 | 8 уроков | 💰 1 200 000 UZS/мес
+Ages 7–8 (Voyagers) | 💰 1 800 000 UZS/мес | 12 уроков:
+• 🗓 Пн, Ср, Пт | ⏰ 17:00–18:00
+• 🗓 Вт, Чт, Сб | ⏰ 17:10–18:10
 
 Ages 9–10 (Achievers):
-• Группа 7  | 👩‍🏫 Мафтуна | 🗓 Вт, Чт, Сб | ⏰ 11:30–12:30 | 12 уроков | 💰 1 800 000 UZS/мес
-• Группа 8  | 👩‍🏫 Мафтуна | 🗓 Вт, Чт, Сб | ⏰ 16:00–17:00 | 12 уроков | 💰 1 800 000 UZS/мес
-• Группа 10 | 👩‍🏫 Мохинур | 🗓 Вт, Чт | ⏰ 16:00–17:00 | 8 уроков | 💰 1 200 000 UZS/мес
-• Группа 12 | 👩‍🏫 Мохинур | 🗓 Вт, Чт | ⏰ 10:30–11:30 | 8 уроков | 💰 1 200 000 UZS/мес
+• 🗓 Пн, Ср, Пт | ⏰ 11:00–12:00 | 12 уроков | 💰 1 800 000 UZS/мес
+• 🗓 Пн, Ср, Пт | ⏰ 11:15–12:15 | 12 уроков | 💰 1 800 000 UZS/мес
+• 🗓 Вт, Чт, Сб | ⏰ 16:00–17:00 | 12 уроков | 💰 1 800 000 UZS/мес
+• 🗓 Вт, Чт | ⏰ 16:00–17:00 | 8 уроков | 💰 1 200 000 UZS/мес
 
-Ages 10–12 (Masters) | 💰 1 200 000 UZS/мес | 8 уроков:
-• Группа 9 | 👩‍🏫 Мохинур | 🗓 Вт, Чт | ⏰ 14:20–15:20
+Ages 10–12 (Masters):
+• 🗓 Вт, Чт, Сб | ⏰ 11:15–12:15 | 12 уроков | 💰 1 800 000 UZS/мес
+• 🗓 Вт, Чт | ⏰ 11:00–12:00 | 8 уроков | 💰 1 200 000 UZS/мес
 
 Ages 13–15 (Pioneers) | 💰 1 200 000 UZS/мес | 8 уроков:
-• Группа 11 | 👩‍🏫 Мохинур | 🗓 Вт, Чт | ⏰ 17:20–18:40
+• 🗓 Вт, Чт | ⏰ 17:20–18:40
 
 ---
 
 ## QUESTION HANDLING — CLOSE (answer fully, guide to payment)
 
 ### Schedule
-- "Only evenings work for us / after 17:00?" → Yes! Group 4 at 17:00 (7–8 yrs, Mon/Wed/Fri) and Group 11 at 17:20 (13–15 yrs, Tue/Thu). Late-afternoon options too: Group 8 & Group 10 at 16:00 (9–10 yrs). Ask child's age to find the right one.
-- "Only Tue/Thu?" → Yes, we have Tue/Thu groups (Groups 9, 10, 11, 12, 13). Ask age.
-- "Saturday?" → Yes! Groups 5, 6, 7, 8 run on Tue/Thu/Sat (Saturday is part of the schedule). Ask age.
+- "Only evenings work for us / after 17:00?" → Yes! 7–8 yrs: 17:00–18:00 (Mon/Wed/Fri) or 17:10–18:10 (Tue/Thu/Sat); 13–15 yrs: 17:20–18:40 (Tue/Thu). Late-afternoon at 16:00 for 9–10 yrs too. Ask child's age to find the right one.
+- "Only Tue/Thu?" → Yes, we have Tue/Thu groups (9–10, 10–12 and 13–15 yrs). Ask age.
+- "Saturday?" → Yes! The Tue/Thu/Sat groups include Saturday. Ask age.
 - "Sunday?" → We don't have Sunday groups. Offer weekday or Tue/Thu/Sat options, or WAITLIST if none fit.
 
 ### Pricing
