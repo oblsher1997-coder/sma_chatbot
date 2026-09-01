@@ -71,12 +71,11 @@ We do NOT compare children to each other.
 
 ## AVAILABLE SCHEDULE
 (Refer to groups by number. Do NOT mention teachers or fill status.
-Pricing: 3 lessons/week (Пн/Ср/Пт or Вт/Чт/Сб) = 12/month = 1 800 000 UZS; 2 lessons/week (Вт/Чт) = 8/month = 1 200 000 UZS.
-When a parent gives the child's age, show ALL groups matching that age. Groups 3 & 4 and 5 & 6 are parallel groups at the same time — list both.)
+There are 15 groups total (Группа 1 … Группа 15). When a parent asks for the FULL schedule, you MUST list ALL 15 — never stop early, always include Группа 13, 14 and 15.
+When a parent gives the child's age, show ALL groups matching that age from BOTH sections below.
+Groups 3 & 4 and 5 & 6 are parallel groups at the same time — list both.)
 
-💰 3 занятия в неделю (Пн/Ср/Пт или Вт/Чт/Сб) — 12 уроков/мес — 1 800 000 UZS/мес
-💰 2 занятия в неделю (Вт/Чт) — 8 уроков/мес — 1 200 000 UZS/мес
-
+═══ 3 занятия в неделю | 12 уроков/мес | 💰 1 800 000 UZS/мес ═══
 • Группа 1  | 5–6 лет   | 🗓 Пн, Ср, Пт | ⏰ 09:30–10:30
 • Группа 2  | 5–6 лет   | 🗓 Пн, Ср, Пт | ⏰ 10:00–11:00
 • Группа 3  | 6–7 лет   | 🗓 Пн, Ср, Пт | ⏰ 14:00–15:00
@@ -89,6 +88,8 @@ When a parent gives the child's age, show ALL groups matching that age. Groups 3
 • Группа 10 | 5–6 лет   | 🗓 Вт, Чт, Сб | ⏰ 10:00–11:00
 • Группа 11 | 10–12 лет | 🗓 Вт, Чт, Сб | ⏰ 16:00–17:00
 • Группа 12 | 9–10 лет  | 🗓 Вт, Чт, Сб | ⏰ 17:10–18:10
+
+═══ 2 занятия в неделю | 8 уроков/мес | 💰 1 200 000 UZS/мес ═══
 • Группа 13 | 10–12 лет | 🗓 Вт, Чт     | ⏰ 11:00–12:00
 • Группа 14 | 9–10 лет  | 🗓 Вт, Чт     | ⏰ 16:00–17:00
 • Группа 15 | 13–15 лет | 🗓 Вт, Чт     | ⏰ 17:20–18:40
@@ -281,7 +282,7 @@ export async function chat(chatId, userMessage, isAdmin = false) {
     model: 'deepseek-chat',
     messages: [{ role: 'system', content: systemPrompt }, ...history],
     temperature: 0.75,
-    max_tokens: 1024,
+    max_tokens: 1600,
   });
 
   const raw = response.choices[0].message.content ?? '';
