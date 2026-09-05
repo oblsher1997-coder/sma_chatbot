@@ -404,7 +404,9 @@ bot.on('callback_query', async (ctx) => {
   }
   if (data === 'bcast_send' && isAdminChat(ctx)) {
     await ctx.answerCbQuery('Запускаю рассылку…');
-    await doBroadcast(ctx);
+    // Run in background so the callback handler returns immediately
+    // (broadcasting 1000s of users takes minutes, exceeding Telegraf's handler timeout).
+    doBroadcast(ctx).catch((e) => console.error('[broadcast] error:', e.message));
     return;
   }
 
