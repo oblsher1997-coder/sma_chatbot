@@ -8,6 +8,7 @@ import {
   trackConversion, trackEscalation, trackWaitlist,
   trackDropout, setReminded, getUserData,
   getStats, buildStatsMessage,
+  getAllUserIds, markBlocked,
 } from './analytics.js';
 import { scheduleReminder, cancelReminder } from './reminder.js';
 import { appendEnrollment, ensureHeader } from './sheets.js';
@@ -24,6 +25,11 @@ const TEACHER_GROUP_CHAT_ID = process.env.TEACHER_GROUP_CHAT_ID;
 
 // pending enrollment data per chatId
 const pendingEnrollments = new Map();
+
+// Broadcast composition state (single admin). null when idle.
+// { stage: 'awaiting' | 'confirm', type: 'text'|'photo', text?, photo?, caption? }
+let broadcast = null;
+let broadcasting = false;
 
 // ─── Reply map (group message ID → parent chat ID) ──────────────────────────
 async function loadReplyMap() {
@@ -170,6 +176,92 @@ bot.command('chatid', (ctx) => {
   ctx.reply(`Chat ID: ${ctx.chat.id}\nType: ${ctx.chat.type}`);
 });
 
+// ─── Broadcast (admin only) ──────────────────────────────────────────────────
+function isAdminChat(ctx) {
+  return ADMIN_CHAT_ID && String(ctx.chat?.id) === ADMIN_CHAT_ID;
+}
+
+async function showBroadcastPreview(ctx) {
+  const kb = {
+    inline_keyboard: [[
+      { text: '📢 Разослать всем', callback_data: 'bcast_send' },
+      { text: '❌ Отмена', callback_data: 'bcast_cancel' },
+    ]],
+  };
+  if (broadcast.type === 'photo') {
+    await ctx.replyWithPhoto(broadcast.photo, {
+      caption: `👁 ПРЕВЬЮ РАССЫЛКИ (так увидят родители):\n\n${broadcast.caption || ''}`,
+      reply_markup: kb,
+    });
+  } else {
+    await ctx.reply(
+      `👁 ПРЕВЬЮ РАССЫЛКИ (так увидят родители):\n\n${broadcast.text}`,
+      { reply_markup: kb }
+    );
+  }
+}
+
+async function doBroadcast(ctx) {
+  if (!broadcast || broadcast.stage !== 'confirm') return;
+  if (broadcasting) { await ctx.reply('Рассылка уже идёт, подождите.'); return; }
+
+  const payload = broadcast;
+  broadcast = null;
+  broadcasting = true;
+
+  try {
+    const ids = await getAllUserIds();
+    await ctx.reply(`📢 Начинаю рассылку для ${ids.length} пользователей…`);
+
+    let sent = 0, blocked = 0, failed = 0;
+    for (const id of ids) {
+      try {
+        if (payload.type === 'photo') {
+          await bot.telegram.sendPhoto(id, payload.photo, { caption: payload.caption || undefined });
+        } else {
+          await bot.telegram.sendMessage(id, payload.text);
+        }
+        sent++;
+      } catch (err) {
+        const code = err?.response?.error_code;
+        if (code === 403) { blocked++; await markBlocked(id); }
+        else { failed++; console.error('[broadcast] send fail', id, err.message); }
+      }
+      await new Promise((r) => setTimeout(r, 50)); // ~20 msg/sec
+    }
+
+    await ctx.reply(
+      `✅ Рассылка завершена!\n\n` +
+      `📤 Отправлено: ${sent}\n` +
+      `🚫 Заблокировали бота: ${blocked}\n` +
+      `⚠️ Ошибок: ${failed}\n` +
+      `👥 Всего: ${ids.length}`
+    );
+  } finally {
+    broadcasting = false;
+  }
+}
+
+bot.command('broadcast', async (ctx) => {
+  if (!isAdminChat(ctx)) { await ctx.reply('Нет доступа.'); return; }
+  broadcast = { stage: 'awaiting' };
+  await ctx.reply(
+    '📢 Режим рассылки.\n\n' +
+    'Отправьте сообщение, которое хотите разослать всем пользователям:\n' +
+    '• просто текст, или\n' +
+    '• фото с подписью\n\n' +
+    'Для отмены — /cancel'
+  );
+});
+
+bot.command('cancel', async (ctx) => {
+  if (!isAdminChat(ctx)) return;
+  if (broadcast) {
+    broadcast = null;
+    await ctx.reply('Рассылка отменена.');
+  }
+});
+
 // ─── /start ──────────────────────────────────────────────────────────────────
 bot.start(async (ctx) => {
   // Only handle private chats
@@ -186,6 +278,7 @@ bot.start(async (ctx) => {
       'Привет! Вы вошли как администратор SpeakMotion Academy.\n\n' +
       'Доступные команды:\n' +
       '/stats — статистика бота\n' +
+      '/broadcast — рассылка всем пользователям\n' +
       '/chatid — ID этого чата\n\n' +
       'Напишите любой вопрос — я отвечу в режиме администратора.'
     );
@@ -252,6 +345,14 @@ bot.on('text', async (ctx) => {
   if (chatType !== 'private') return;
 
   const isAdmin = ADMIN_CHAT_ID && String(chatId) === ADMIN_CHAT_ID;
+
+  // Admin composing a broadcast — capture this text as the broadcast content
+  if (isAdmin && broadcast && broadcast.stage === 'awaiting') {
+    broadcast = { stage: 'confirm', type: 'text', text: ctx.message.text };
+    await showBroadcastPreview(ctx);
+    return;
+  }
+
   cancelReminder(chatId);
 
   if (!isAdmin) await trackMessage(chatId);
@@ -279,8 +380,34 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// ─── Callback queries (legacy, kept for safety) ──────────────────────────────
+// ─── Photo messages (admin broadcast composition) ────────────────────────────
+bot.on('photo', async (ctx) => {
+  if (ctx.chat?.type !== 'private') return;
+  if (!isAdminChat(ctx)) return;
+  if (!broadcast || broadcast.stage !== 'awaiting') return;
+
+  const photos = ctx.message.photo;
+  const fileId = photos[photos.length - 1].file_id; // highest resolution
+  broadcast = { stage: 'confirm', type: 'photo', photo: fileId, caption: ctx.message.caption || '' };
+  await showBroadcastPreview(ctx);
+});
+
+// ─── Callback queries ─────────────────────────────────────────────────────────
 bot.on('callback_query', async (ctx) => {
+  const data = ctx.callbackQuery?.data;
+
+  if (data === 'bcast_cancel' && isAdminChat(ctx)) {
+    broadcast = null;
+    await ctx.answerCbQuery('Отменено');
+    await ctx.reply('Рассылка отменена.');
+    return;
+  }
+  if (data === 'bcast_send' && isAdminChat(ctx)) {
+    await ctx.answerCbQuery('Запускаю рассылку…');
+    await doBroadcast(ctx);
+    return;
+  }
+
   await ctx.answerCbQuery();
 });
 

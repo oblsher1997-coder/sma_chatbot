@@ -160,6 +160,19 @@ export async function getUserData(chatId) {
   return data.users[String(chatId)] || null;
 }
 
+// Returns all chat IDs that have ever interacted with the bot (for broadcasts).
+export async function getAllUserIds() {
+  const data = await read();
+  return Object.keys(data.users);
+}
+
+export async function markBlocked(chatId) {
+  const data = await read();
+  ensureUser(data, chatId);
+  data.users[chatId].blocked = true;
+  await write(data);
+}
+
 export async function getStats() {
   return read();
 }
