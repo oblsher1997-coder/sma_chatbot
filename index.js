@@ -23,6 +23,41 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID ? String(process.env.ADMIN_CHAT_ID) : null;
 const TEACHER_GROUP_CHAT_ID = process.env.TEACHER_GROUP_CHAT_ID;
 
+// CRM intake: заявки из бота видны в разделе «Заявки» CRM. Бот и CRM на одном
+// сервере — зовём по localhost. Если переменные не заданы, шаг тихо пропускается.
+const CRM_INTAKE_URL = process.env.CRM_INTAKE_URL || '';
+const CRM_INTAKE_KEY = process.env.INTAKE_API_KEY || '';
+
+// Отправка заявки в CRM (fire-and-forget: не блокирует бота, не роняет заявку
+// при недоступности CRM — уведомление учителям и Google Sheets уже прошли).
+async function sendLeadToCrm(booking) {
+  if (!CRM_INTAKE_URL || !CRM_INTAKE_KEY) return;
+  try {
+    const res = await fetch(CRM_INTAKE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-intake-key': CRM_INTAKE_KEY },
+      body: JSON.stringify({
+        childName: booking.childName,
+        childBirthDate: booking.childBirthDate,
+        parentName: booking.parentName,
+        phone: booking.parentPhone,
+        groupInterest: booking.group,
+        format: booking.format,
+        source: 'telegram',
+        notes: booking.chatId ? `Telegram chat: ${booking.chatId}` : undefined,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      console.error('[crm] intake failed:', res.status, await res.text().catch(() => ''));
+    } else {
+      console.log('[crm] lead sent to CRM');
+    }
+  } catch (err) {
+    console.error('[crm] intake error:', err.message);
+  }
+}
+
 // pending enrollment data per chatId
 const pendingEnrollments = new Map();
 
@@ -105,6 +140,8 @@ async function handleAction(ctx, action) {
 
       // Log to Google Sheets
       await appendEnrollment({ ...booking, paymentMethod: `Консультация (${booking.format})` });
+      // Отправляем заявку в CRM (раздел «Заявки»)
+      void sendLeadToCrm(booking);
       await trackConversion(chatId, booking);
       break;
     }
