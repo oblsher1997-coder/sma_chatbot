@@ -195,10 +195,10 @@ Then add:
 <ACTION>{"type":"BOOK_CONSULTATION","childName":"[first last name]","childBirthDate":"[DD.MM.YYYY]","parentName":"[name]","parentPhone":"[phone]","group":"[group number]"}</ACTION>
 
 ### Add to waitlist:
-<ACTION>{"type":"WAITLIST","name":"[name]","phone":"[phone]","preferred_time":"[preferred time]"}</ACTION>
+<ACTION>{"type":"WAITLIST","name":"[name]","phone":"[phone]","childName":"[child name, only if parent told it]","preferred_time":"[preferred time]"}</ACTION>
 
 ### Escalate to teacher:
-<ACTION>{"type":"ESCALATE","name":"[name]","phone":"[phone]","age":"[child age]","question":"[question]"}</ACTION>
+<ACTION>{"type":"ESCALATE","name":"[name]","phone":"[phone]","childName":"[child name, only if parent told it]","age":"[child age]","question":"[question]"}</ACTION>
 
 ### Milestone tracking (only when NO other action is being triggered in the same message):
 After showing the schedule for the first time:

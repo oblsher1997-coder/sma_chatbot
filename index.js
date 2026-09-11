@@ -44,7 +44,8 @@ async function sendLeadToCrm(booking) {
         groupInterest: booking.group,
         format: booking.format,
         source: 'telegram',
-        notes: booking.chatId ? `Telegram chat: ${booking.chatId}` : undefined,
+        notes: [booking.note, booking.chatId ? `Telegram chat: ${booking.chatId}` : null]
+          .filter(Boolean).join('\n') || undefined,
       }),
       signal: AbortSignal.timeout(8000),
     });
@@ -56,6 +57,29 @@ async function sendLeadToCrm(booking) {
   } catch (err) {
     console.error('[crm] intake error:', err.message);
   }
+}
+
+// Вопросы учителю (ESCALATE) и лист ожидания (WAITLIST) тоже идут в CRM.
+// ИИ часто шлёт ESCALATE несколько раз подряд, дособирая данные (сначала без
+// телефона, потом с именем) — копим последнюю версию по чату и отправляем ОДНУ
+// заявку после паузы, чтобы не плодить карточки. Без телефона CRM не примет.
+const CRM_INQUIRY_DEBOUNCE_MS = 90_000;
+const pendingInquiries = new Map(); // chatId → { lead, timer }
+
+function queueInquiryToCrm(chatId, lead) {
+  const prev = pendingInquiries.get(chatId);
+  if (prev) clearTimeout(prev.timer);
+  const merged = { ...prev?.lead };
+  for (const [k, v] of Object.entries(lead)) if (v) merged[k] = v;
+  const timer = setTimeout(() => {
+    pendingInquiries.delete(chatId);
+    if (!merged.parentPhone) {
+      console.warn('[crm] inquiry without phone — skipped, chat', chatId);
+      return;
+    }
+    void sendLeadToCrm(merged);
+  }, CRM_INQUIRY_DEBOUNCE_MS);
+  pendingInquiries.set(chatId, { lead: merged, timer });
 }
 
 // pending enrollment data per chatId
@@ -162,6 +186,14 @@ async function handleAction(ctx, action) {
       } catch (err) {
         console.error('[escalate] Failed to notify teacher:', err.message);
       }
+      queueInquiryToCrm(chatId, {
+        childName:   action.childName || '❓ Вопрос учителю',
+        parentName:  action.name,
+        parentPhone: action.phone,
+        note:        [`❓ Вопрос: ${action.question ?? '—'}`, action.age ? `👶 Возраст: ${action.age}` : null]
+          .filter(Boolean).join('\n'),
+        chatId,
+      });
       await trackEscalation(chatId);
       break;
     }
@@ -172,6 +204,13 @@ async function handleAction(ctx, action) {
       } catch (err) {
         console.error('[waitlist] Failed to save entry:', err.message);
       }
+      queueInquiryToCrm(chatId, {
+        childName:   action.childName || '⏳ Лист ожидания',
+        parentName:  action.name,
+        parentPhone: action.phone,
+        note:        `⏳ Лист ожидания, удобное время: ${action.preferred_time ?? '—'}`,
+        chatId,
+      });
       await trackWaitlist(chatId);
       break;
     }
