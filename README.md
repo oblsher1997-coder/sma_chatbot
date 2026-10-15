@@ -79,12 +79,12 @@ Until you have real links, the bot uses placeholder URLs — parents can still r
 
 ```
 speakmotion-bot/
-├── index.js        — Bot entry point (Telegraf, action dispatcher)
+├── index.js        — Bot entry point: menu, application form flow, broadcast, CRM intake
+├── form.js         — Form texts (ru/uz), keyboards and input parsers
 ├── deepseek.js     — DeepSeek API wrapper + conversation history + system prompt
-├── schedule.js     — Schedule data and age-to-group matching logic
-├── escalate.js     — Sends teacher notification to group chat
-├── waitlist.js     — Reads/writes waitlist.json
-├── waitlist.json   — Auto-created when first parent joins waitlist
+├── sheets.js       — Writes applications to the «Заявки» tab in Google Sheets
+├── analytics.js    — Stats and funnel (analytics.json), /stats message
+├── reminder.js     — One 30-minute reminder per silent chat
 ├── .env            — Your secrets (never commit this)
 ├── .env.example    — Template for .env
 └── README.md
@@ -94,15 +94,17 @@ speakmotion-bot/
 
 ## How the Bot Works
 
-1. Parent opens the bot → AI greets in Russian (switches to Uzbek if parent writes in Uzbek)
-2. Bot asks for child's age
-3. For ages 4–5: checks speech development before showing schedule
-4. Presents available groups for that age bracket
-5. Parent picks a time slot → bot sends payment links (Payme + Click)
-6. If no schedule fits → bot tries to find alternatives, then adds to waitlist
-7. Complex questions → bot collects contact info and notifies the teacher group
+1. Parent opens the bot → picks a language (Русский / O'zbekcha)
+2. Menu: «📝 Оставить заявку» or «❓ Задать вопрос»
+3. Application form, 4 steps: child's age (buttons) → child's name → convenient time (buttons) → phone (Telegram "share contact" button or typed)
+4. Parent confirms → the application goes to the teachers' group, the CRM («Заявки») and Google Sheets (tab «Заявки»)
+5. The team calls the parent, picks a group and invites them to a free offline consultation
+6. «❓ Задать вопрос» → the AI answers questions (methodology, prices, address) and opens the form when the parent is ready
+7. Teachers answer a parent by replying to the notification in the group with `!текст!`
 
-Conversation history is stored in memory (per chat ID) and resets on `/start`.
+Short messages like «Консультация» or «записаться» open the form directly. A parent who goes silent gets one reminder after 30 minutes. The admin sees the same menu and can submit test applications (marked 🧪 ТЕСТ).
+
+Form progress and AI conversation history are stored in memory (per chat ID) and reset on `/start`.
 
 ---
 
@@ -136,7 +138,6 @@ Railway offers a free hobby tier suitable for running this bot 24/7.
 
 ## Customization
 
-- **System prompt / AI behavior** — edit `deepseek.js` → `SYSTEM_PROMPT`
-- **Schedule data** — edit `schedule.js` (reference only; the AI uses the schedule embedded in the system prompt — update both)
-- **Teacher notification format** — edit `escalate.js`
-- **Waitlist storage** — replace `waitlist.json` logic in `waitlist.js` with a database call
+- **System prompt / AI behavior** — edit `buildSystemPrompt()` in `deepseek.js`
+- **Form questions, buttons, texts** — edit `T` and the keyboards in `form.js`
+- **Teacher notification format** — edit `groupMessage()` in `form.js`

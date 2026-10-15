@@ -85,6 +85,8 @@ export async function trackMessage(chatId) {
 export async function trackStage(chatId, stage) {
   const data = await read();
   ensureUser(data, chatId);
+  // A second form attempt shouldn't hide that this parent already applied
+  if (data.users[chatId].stage === 'converted' && stage.startsWith('form_')) return;
   data.users[chatId].stage = stage;
   data.users[chatId].lastSeen = new Date().toISOString();
   await write(data);
@@ -197,7 +199,7 @@ export function buildStatsMessage(data) {
     .slice(0, 7);
 
   const dailyLines = last7.map(([date, d]) =>
-    `  ${date}: 👤${d.sessions} ✅${d.converted || 0} 🔔${d.escalated || 0} ⏳${d.waitlisted || 0} 💬${d.messages}`
+    `  ${date}: 👤${d.sessions} ✅${d.converted || 0} 💬${d.messages}`
   ).join('\n');
 
   // Dropout reasons
@@ -214,41 +216,48 @@ export function buildStatsMessage(data) {
     .map(([k, v]) => `  • ${reasonLabels[k] || k}: ${v}`)
     .join('\n') || '  Нет данных';
 
-  // Stage funnel
+  // Where each user currently is (their last step). Form steps first, then
+  // stages left over from the old schedule-based flow.
   const stageLabels = {
     started: '🚀 Нажали /start',
-    responding: '💬 Написали первое сообщение',
-    schedule_shown: '📋 Увидели расписание',
-    slot_selected: '✋ Выбрали слот',
-    data_requested: '📝 Запрошены данные ребёнка',
-    converted: '✅ Оплата отправлена',
-    escalated: '🔔 Переданы учителю',
-    waitlisted: '⏳ В листе ожидания',
+    responding: '💬 Писали боту, заявку не начинали',
+    form_age: '1️⃣ Анкета: остановились на возрасте',
+    form_name: '2️⃣ Анкета: остановились на имени ребёнка',
+    form_time: '3️⃣ Анкета: остановились на времени',
+    form_phone: '4️⃣ Анкета: остановились на телефоне',
+    form_confirm: '👀 Анкета: не нажали «Отправить»',
+    converted: '✅ Заявка отправлена',
+    schedule_shown: '📋 (старое) Увидели расписание',
+    slot_selected: '✋ (старое) Выбрали слот',
+    escalated: '🔔 (старое) Переданы учителю',
+    waitlisted: '⏳ (старое) В листе ожидания',
   };
+  const order = Object.keys(stageLabels);
   const funnelLines = Object.entries(stages)
+    .sort(([a], [b]) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99))
     .map(([k, v]) => `  • ${stageLabels[k] || k}: ${v}`)
     .join('\n');
 
   return [
-    `📊 *Статистика SpeakMotion Bot*`,
+    `📊 Статистика SpeakMotion Bot`,
     ``,
-    `👥 Всего пользователей: *${totalUsers}*`,
-    `🚀 Всего сессий: *${totals.sessions}*`,
-    `💬 Всего сообщений: *${totals.messages}*`,
+    `👥 Всего пользователей: ${totalUsers}`,
+    `🚀 Всего сессий: ${totals.sessions}`,
+    `💬 Всего сообщений: ${totals.messages}`,
     ``,
-    `✅ Успешных оплат: *${totals.converted}*${pct(totals.converted)}`,
-    `🔔 Эскалаций к учителю: *${totals.escalated}*${pct(totals.escalated)}`,
-    `⏳ В листе ожидания: *${totals.waitlisted}*${pct(totals.waitlisted)}`,
-    `🚪 Ушли без результата: *${Math.max(0, dropped)}*${pct(Math.max(0, dropped))}`,
+    `✅ Заявок отправлено: ${totals.converted}${pct(totals.converted)}`,
+    totals.escalated ? `🔔 Эскалаций (старый формат): ${totals.escalated}` : null,
+    totals.waitlisted ? `⏳ Лист ожидания (старый формат): ${totals.waitlisted}` : null,
+    `🚪 Ушли без результата: ${Math.max(0, dropped)}${pct(Math.max(0, dropped))}`,
     ``,
-    `📉 *Воронка по стадиям:*`,
+    `📉 Где сейчас пользователи (последний шаг):`,
     funnelLines,
     ``,
-    `❓ *Причины отказа:*`,
+    `❓ Причины отказа:`,
     reasonLines,
     ``,
-    `📅 *Последние 7 дней:*`,
-    `  (👤сессии ✅оплаты 🔔эскалации ⏳вейтлист 💬сообщения)`,
+    `📅 Последние 7 дней:`,
+    `  (👤сессии ✅заявки 💬сообщения)`,
     dailyLines || '  Нет данных',
-  ].join('\n');
+  ].filter((line) => line !== null).join('\n');
 }
