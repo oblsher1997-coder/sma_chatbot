@@ -2,19 +2,24 @@ import { Telegraf } from 'telegraf';
 import 'dotenv/config';
 import { chat, resetConversation } from './deepseek.js';
 import {
-  trackSession, trackMessage, trackStage, trackConversion,
+  trackSession, trackMessage, trackStage, trackConversion, trackDiagnostic,
   trackDropout, setReminded, setLanguage, getUserData,
   getStats, buildStatsMessage,
   getAllUserIds, markBlocked,
 } from './analytics.js';
 import { scheduleReminder, cancelReminder } from './reminder.js';
-import { appendApplication, prepareApplicationsSheet } from './sheets.js';
+import { appendApplication, appendDiagnostic, prepareSheets } from './sheets.js';
 import {
-  WELCOME, T, TIMES, ageLabel, timeLabel,
-  langKeyboard, mainKeyboard, ageKeyboard, timeKeyboard, phoneKeyboard,
-  confirmKeyboard, continueKeyboard, applyKeyboard,
-  parseAge, parseTime, normalizePhone, isApplyIntent, looksLikeQuestion, groupMessage,
+  DIAGNOSTIC_MODE, WELCOME, T, TIMES, ageLabel, timeLabel, dateLabel, dateButton,
+  menuText, remindMenuText,
+  langKeyboard, mainKeyboard, ageKeyboard, diagAgeKeyboard, timeKeyboard, dateKeyboard,
+  slotKeyboard, phoneKeyboard, confirmKeyboard, continueKeyboard, applyKeyboard,
+  parseAge, parseTime, parseClock, normalizePhone, isApplyIntent, looksLikeQuestion,
+  groupMessage, diagGroupMessage,
 } from './form.js';
+import {
+  freeDates, freeTimes, book, upcoming, release, block, slotEnd, slotsFor, isValidAge, parseDayMonth,
+} from './diagnostics.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -57,20 +62,23 @@ async function sendLeadToCrm(lead) {
   }
 }
 
-// Field limits follow the CRM intake schema (childName ≤150, groupInterest ≤100, notes ≤2000).
+// Field limits follow the CRM intake schema (childName ≤150, groupInterest ≤100,
+// format ≤30, notes ≤2000).
 function crmLead(f, { lang, username, chatId, isTest }) {
   const age = ageLabel(f.age, 'ru');
-  const time = timeLabel(f.time, 'ru');
+  const isDiag = f.kind === 'diag';
+  const when = isDiag ? `${dateLabel(f.date, 'ru')}, ${f.slot}–${slotEnd(f.slot)}` : timeLabel(f.time, 'ru');
   return {
     childName: `${isTest ? '🧪 ТЕСТ · ' : ''}${f.childName}`.slice(0, 150),
     parentName: f.parentName.slice(0, 150),
     phone: f.phone,
-    groupInterest: `${age} · ${time}`.slice(0, 100),
-    format: 'офлайн',
+    groupInterest: (isDiag ? `Диагностика · ${dateButton(f.date, 'ru')} ${f.slot}` : `${age} · ${when}`).slice(0, 100),
+    format: isDiag ? 'диагностика' : 'офлайн',
     source: 'telegram',
     notes: [
+      isDiag ? `🔍 Диагностика: ${when}` : null,
       `👶 Возраст: ${age}`,
-      `🕐 Удобное время: ${time}`,
+      isDiag ? null : `🕐 Удобное время: ${when}`,
       f.question ? `❓ Вопрос: ${f.question}` : null,
       `💬 Telegram: ${username ? `@${username}` : '—'}`,
       `🌐 Язык: ${lang === 'uz' ? 'узбекский' : 'русский'}`,
@@ -79,8 +87,16 @@ function crmLead(f, { lang, username, chatId, isTest }) {
   };
 }
 
-// Applications in progress: chatId → { step, age, childName, time, parentName, phone, question }
-// step: 'age' → 'name' → 'time' → 'phone' → 'confirm'
+// Forms in progress: chatId → { kind, step, age, childName, time | date+slot, parentName, phone, question }
+// The menu's main button opens MAIN_KIND; the other kind stays in code for DIAGNOSTIC_MODE = false.
+const MAIN_KIND = DIAGNOSTIC_MODE ? 'diag' : 'app';
+const FLOW = {
+  app: ['age', 'name', 'time', 'phone', 'confirm'],
+  diag: ['age', 'date', 'slot', 'name', 'phone', 'confirm'],
+};
+// Stages after which a parent shouldn't be reminded or re-funnelled
+const DONE_STAGES = ['converted', 'diag_booked'];
+
 const forms = new Map();
 // Chosen language per chat (cached here, persisted in analytics.json)
 const langs = new Map();
@@ -165,38 +181,80 @@ async function clearButtons(ctx) {
 }
 
 // ─── Reminder ────────────────────────────────────────────────────────────────
-// One reminder after 30 min of silence: "continue your application" if a form
-// is in progress, otherwise an invitation to apply.
+// One reminder after 30 min of silence: "continue" if a form is in progress,
+// otherwise an invitation to the main form.
 function scheduleUserReminder(chatId) {
   if (isAdminId(chatId)) return;
   scheduleReminder(chatId, async () => {
     const user = await getUserData(chatId);
-    if (!user || user.reminded || user.stage === 'converted') return;
+    if (!user || user.reminded || DONE_STAGES.includes(user.stage)) return;
+    // Told the diagnostic isn't for their child's age — don't invite them again
+    if (DIAGNOSTIC_MODE && user.dropoutReason === 'age_out_of_range') return;
     const lang = await getLang(chatId);
-    const inForm = forms.has(chatId);
-    await bot.telegram.sendMessage(chatId, inForm ? T[lang].remindForm : T[lang].remindMenu, {
-      reply_markup: inForm ? continueKeyboard(lang) : applyKeyboard(lang),
+    const form = forms.get(chatId);
+    const text = form
+      ? (form.kind === 'diag' ? T[lang].diagRemindForm : T[lang].remindForm)
+      : remindMenuText(lang);
+    await bot.telegram.sendMessage(chatId, text, {
+      reply_markup: form ? continueKeyboard(lang) : applyKeyboard(lang),
     });
     await setReminded(chatId);
   });
 }
 
-// ─── Application form ────────────────────────────────────────────────────────
+// ─── Forms ───────────────────────────────────────────────────────────────────
+function advance(form) {
+  const flow = FLOW[form.kind];
+  form.step = flow[flow.indexOf(form.step) + 1];
+}
+
 // Sends the question for the current step and restarts the reminder timer.
 async function sendStep(chatId) {
   const form = forms.get(chatId);
   if (!form) return;
   const lang = await getLang(chatId);
   const t = T[lang];
-  const prompts = {
-    age: [t.stepAge, ageKeyboard(lang)],
-    name: [t.stepName, null],
-    time: [t.stepTime, timeKeyboard(lang)],
-    phone: [t.stepPhone, phoneKeyboard(lang)],
-    confirm: [t.confirm(form), confirmKeyboard(lang)],
-  };
-  if (!prompts[form.step]) return; // 'sending' — submit in progress
-  const [text, markup] = prompts[form.step];
+  let prompt;
+
+  if (form.kind === 'diag') {
+    switch (form.step) {
+      case 'age': prompt = [t.diagAge, diagAgeKeyboard(lang)]; break;
+      case 'date': {
+        const dates = freeDates();
+        if (!dates.length) {
+          forms.delete(chatId);
+          await bot.telegram.sendMessage(chatId, t.diagNoDates, { reply_markup: mainKeyboard(lang) });
+          return;
+        }
+        prompt = [t.diagDate, dateKeyboard(dates, lang)];
+        break;
+      }
+      case 'slot': {
+        const times = freeTimes(form.date);
+        if (!times.length) {
+          // The day filled up meanwhile — pick another one
+          form.step = 'date';
+          return sendStep(chatId);
+        }
+        prompt = [t.diagSlot(dateLabel(form.date, lang)), slotKeyboard(times, lang)];
+        break;
+      }
+      case 'name': prompt = [t.diagName, null]; break;
+      case 'phone': prompt = [t.diagPhone, phoneKeyboard(lang)]; break;
+      case 'confirm': prompt = [t.diagConfirm(form), confirmKeyboard(lang, t.btnBook)]; break;
+    }
+  } else {
+    prompt = {
+      age: [t.stepAge, ageKeyboard(lang)],
+      name: [t.stepName, null],
+      time: [t.stepTime, timeKeyboard(lang)],
+      phone: [t.stepPhone, phoneKeyboard(lang)],
+      confirm: [t.confirm(form), confirmKeyboard(lang)],
+    }[form.step];
+  }
+
+  if (!prompt) return; // 'sending' — submit in progress
+  const [text, markup] = prompt;
   await bot.telegram.sendMessage(chatId, text, markup ? { reply_markup: markup } : {});
   scheduleUserReminder(chatId);
 }
@@ -205,13 +263,32 @@ async function sendStep(chatId) {
 async function enterStep(chatId) {
   const form = forms.get(chatId);
   if (!form) return;
-  if (!isAdminId(chatId)) await trackStage(chatId, `form_${form.step}`);
+  if (!isAdminId(chatId)) await trackStage(chatId, `${form.kind === 'diag' ? 'diag' : 'form'}_${form.step}`);
   await sendStep(chatId);
 }
 
-async function startForm(chatId, question = null) {
-  forms.set(chatId, { step: 'age', question: question || null });
+async function startForm(chatId, question = null, kind = MAIN_KIND) {
+  forms.set(chatId, { kind, step: 'age', question: question || null });
   await enterStep(chatId);
+}
+
+// The diagnostic is only for children 5–10 — politely close the booking.
+async function declineDiagnosticAge(ctx) {
+  const chatId = ctx.chat.id;
+  forms.delete(chatId);
+  cancelReminder(chatId);
+  if (ctx.callbackQuery) await clearButtons(ctx);
+  if (!isAdminId(chatId)) await trackDropout(chatId, 'age_out_of_range');
+  const lang = await getLang(chatId);
+  await ctx.reply(T[lang].diagAgeDecline, { reply_markup: mainKeyboard(lang) });
+}
+
+async function acceptAge(ctx, form, age) {
+  if (form.kind === 'diag' && !isValidAge(age)) return declineDiagnosticAge(ctx);
+  form.age = age;
+  advance(form);
+  if (ctx.callbackQuery) await markChosen(ctx, ageLabel(age, await getLang(ctx.chat.id)));
+  await enterStep(ctx.chat.id);
 }
 
 async function acceptPhone(ctx, form, phone, parentName) {
@@ -225,9 +302,17 @@ async function acceptPhone(ctx, form, phone, parentName) {
   await enterStep(chatId);
 }
 
-async function submitForm(ctx) {
+async function notifyTeachers(chatId, text) {
+  try {
+    const sent = await bot.telegram.sendMessage(TEACHER_GROUP_CHAT_ID, text);
+    await registerReply(sent.message_id, chatId);
+  } catch (err) {
+    console.error('[teachers] Failed to notify group:', err.message);
+  }
+}
+
+async function submitApplication(ctx, form) {
   const chatId = ctx.chat.id;
-  const form = forms.get(chatId);
   forms.delete(chatId);
   cancelReminder(chatId);
 
@@ -239,12 +324,7 @@ async function submitForm(ctx) {
 
   await ctx.reply(T[lang].done, { reply_markup: mainKeyboard(lang) });
 
-  try {
-    const sent = await bot.telegram.sendMessage(TEACHER_GROUP_CHAT_ID, groupMessage(form, meta));
-    await registerReply(sent.message_id, chatId);
-  } catch (err) {
-    console.error('[application] Failed to notify teachers:', err.message);
-  }
+  await notifyTeachers(chatId, groupMessage(form, meta));
   void sendLeadToCrm(crmLead(form, meta));
   await appendApplication({
     ...meta,
@@ -255,7 +335,52 @@ async function submitForm(ctx) {
     phone: form.phone,
     question: form.question,
   });
-  if (!meta.isTest) await trackConversion(chatId, { ...form, lang });
+  if (!meta.isTest) await trackConversion(chatId, { ...answers, lang });
+}
+
+async function submitDiagnostic(ctx, form) {
+  const chatId = ctx.chat.id;
+  const lang = await getLang(chatId);
+  const meta = { lang, username: ctx.from?.username, chatId, isTest: isAdminId(chatId) };
+  const { step, kind, ...answers } = form;
+
+  const booked = await book({
+    date: form.date,
+    time: form.slot,
+    childName: form.childName,
+    age: form.age,
+    parentName: form.parentName,
+    phone: form.phone,
+    ...meta,
+  });
+  if (!booked) {
+    // Someone took the window between the pick and the confirmation
+    form.step = 'slot';
+    await ctx.reply(T[lang].diagTaken);
+    await enterStep(chatId);
+    return;
+  }
+
+  forms.delete(chatId);
+  cancelReminder(chatId);
+  // Last-resort record in the PM2 logs in case every channel below fails
+  console.log('[diagnostic]', JSON.stringify({ ...answers, ...meta }));
+
+  await ctx.reply(T[lang].diagDone(form), { reply_markup: mainKeyboard(lang) });
+
+  await notifyTeachers(chatId, diagGroupMessage(form, meta));
+  void sendLeadToCrm(crmLead(form, meta));
+  await appendDiagnostic({
+    ...meta,
+    date: dateLabel(form.date, 'ru'),
+    time: `${form.slot}–${slotEnd(form.slot)}`,
+    childName: form.childName,
+    age: ageLabel(form.age, 'ru'),
+    parentName: form.parentName,
+    phone: form.phone,
+    question: form.question,
+  });
+  if (!meta.isTest) await trackDiagnostic(chatId, { ...answers, lang });
 }
 
 // Free text while a form is in progress. A valid answer moves the form on;
@@ -266,17 +391,13 @@ async function handleFormText(ctx, form, text) {
   switch (form.step) {
     case 'age': {
       const age = parseAge(text);
-      if (age) {
-        form.age = age;
-        form.step = 'name';
-        return enterStep(chatId);
-      }
+      if (age) return acceptAge(ctx, form, age);
       break;
     }
     case 'name':
       if (!looksLikeQuestion(text)) {
         form.childName = text.trim();
-        form.step = 'time';
+        advance(form);
         return enterStep(chatId);
       }
       break;
@@ -284,7 +405,17 @@ async function handleFormText(ctx, form, text) {
       const time = parseTime(text);
       if (time) {
         form.time = time;
-        form.step = 'phone';
+        advance(form);
+        return enterStep(chatId);
+      }
+      break;
+    }
+    case 'slot': {
+      // "11:30" typed instead of tapped
+      const slot = parseClock(text);
+      if (slot && freeTimes(form.date).includes(slot)) {
+        form.slot = slot;
+        advance(form);
         return enterStep(chatId);
       }
       break;
@@ -322,7 +453,7 @@ async function handleFormCallback(ctx, data) {
     langs.set(chatId, lang);
     if (!isAdminId(chatId)) await setLanguage(chatId, lang);
     await markChosen(ctx, lang === 'uz' ? "🇺🇿 O'zbekcha" : '🇷🇺 Русский');
-    await ctx.reply(T[lang].menu, { reply_markup: mainKeyboard(lang) });
+    await ctx.reply(menuText(lang), { reply_markup: mainKeyboard(lang) });
     scheduleUserReminder(chatId);
     return;
   }
@@ -338,21 +469,19 @@ async function handleFormCallback(ctx, data) {
   if (data.startsWith('age:')) {
     // The bot may have restarted since the form was opened — the age button still works
     if (!form) {
-      form = { step: 'age', question: null };
+      form = { kind: MAIN_KIND, step: 'age', question: null };
       forms.set(chatId, form);
     }
     if (form.step !== 'age') return; // stale button from an earlier message
-    form.age = data === 'age:lt5' ? 'lt5' : Number(data.slice(4));
-    form.step = 'name';
-    await markChosen(ctx, ageLabel(form.age, lang));
-    return enterStep(chatId);
+    if (data === 'age:other') return declineDiagnosticAge(ctx);
+    return acceptAge(ctx, form, data === 'age:lt5' ? 'lt5' : Number(data.slice(4)));
   }
 
   if (!form) {
     // A stale "Отправить" tapped after a successful submit — nothing to do
     if (data === 'form:send') {
       const user = await getUserData(chatId);
-      if (isAdminId(chatId) || user?.stage === 'converted') return;
+      if (isAdminId(chatId) || DONE_STAGES.includes(user?.stage)) return;
     }
     // Otherwise the form was lost in a bot restart — begin again from the first step
     return startForm(chatId);
@@ -362,8 +491,41 @@ async function handleFormCallback(ctx, data) {
     const key = data.slice(5);
     if (form.step !== 'time' || !TIMES[key]) return;
     form.time = key;
-    form.step = 'phone';
+    advance(form);
     await markChosen(ctx, timeLabel(key, lang));
+    return enterStep(chatId);
+  }
+
+  if (data.startsWith('ddate:')) {
+    const date = data.slice(6);
+    if (form.step !== 'date') return;
+    if (!freeTimes(date).length) {
+      await ctx.reply(T[lang].diagTaken);
+      return sendStep(chatId);
+    }
+    form.date = date;
+    advance(form);
+    await markChosen(ctx, dateLabel(date, lang));
+    return enterStep(chatId);
+  }
+
+  if (data.startsWith('dslot:')) {
+    const slot = data.slice(6);
+    if (form.step !== 'slot') return;
+    if (!freeTimes(form.date).includes(slot)) {
+      await ctx.reply(T[lang].diagTaken);
+      return sendStep(chatId);
+    }
+    form.slot = slot;
+    advance(form);
+    await markChosen(ctx, `${slot}–${slotEnd(slot)}`);
+    return enterStep(chatId);
+  }
+
+  if (data === 'dback') {
+    if (form.step !== 'slot') return;
+    form.step = 'date';
+    await clearButtons(ctx);
     return enterStep(chatId);
   }
 
@@ -371,11 +533,11 @@ async function handleFormCallback(ctx, data) {
     if (form.step !== 'confirm') return;
     form.step = 'sending'; // a second tap while submitting is ignored
     await clearButtons(ctx);
-    return submitForm(ctx);
+    return form.kind === 'diag' ? submitDiagnostic(ctx, form) : submitApplication(ctx, form);
   }
 
   if (data === 'form:restart') {
-    forms.set(chatId, { step: 'age', question: form.question });
+    forms.set(chatId, { kind: form.kind, step: 'age', question: form.question });
     await clearButtons(ctx);
     return enterStep(chatId);
   }
@@ -403,7 +565,9 @@ async function handleAction(chatId, action) {
   if (!action) return;
 
   switch (action.type) {
+    // Either way the menu's main form opens — the AI may still use the other name
     case 'START_APPLICATION':
+    case 'START_DIAGNOSTIC':
       // Already filling the form — the caller repeats the current step instead
       if (!forms.has(chatId)) await startForm(chatId, action.question);
       break;
@@ -436,6 +600,62 @@ bot.command('stats', async (ctx) => {
 
 bot.command('chatid', (ctx) => {
   ctx.reply(`Chat ID: ${ctx.chat.id}\nType: ${ctx.chat.type}`);
+});
+
+// ─── Diagnostic bookings (admin only) ────────────────────────────────────────
+bot.command('diag', async (ctx) => {
+  if (!isAdminChat(ctx)) { await ctx.reply('Нет доступа.'); return; }
+
+  const list = upcoming();
+  if (!list.length) {
+    await ctx.reply('🔍 Записей на диагностику пока нет.\n\nЗанять окно вручную: /diag_block 19.10 11:00');
+    return;
+  }
+
+  const lines = ['🔍 Записи на диагностику', ''];
+  let day = null;
+  for (const b of list) {
+    if (b.date !== day) {
+      day = b.date;
+      lines.push(`📅 ${dateLabel(b.date, 'ru')}`);
+    }
+    lines.push(b.blocked
+      ? `  ${b.time} — ⛔ занято вручную`
+      : `  ${b.time} — ${b.childName}, ${ageLabel(b.age, 'ru')} · ${b.parentName}, ${b.phone}${b.isTest ? ' · 🧪 ТЕСТ' : ''}`);
+  }
+  lines.push('', 'Освободить окно (если родитель отменил) — кнопкой ниже.', 'Занять окно вручную: /diag_block 19.10 11:00');
+
+  await ctx.reply(lines.join('\n'), {
+    reply_markup: {
+      inline_keyboard: list.map((b) => [{
+        text: `❌ Освободить ${dateButton(b.date, 'ru')} ${b.time}`,
+        callback_data: `dfree:${b.date}:${b.time}`,
+      }]),
+    },
+  });
+});
+
+bot.command('diag_block', async (ctx) => {
+  if (!isAdminChat(ctx)) { await ctx.reply('Нет доступа.'); return; }
+
+  const [, dayText = '', timeText = ''] = ctx.message.text.trim().split(/\s+/);
+  const date = parseDayMonth(dayText);
+  const time = parseClock(timeText);
+  if (!date || !time) {
+    await ctx.reply('Формат: /diag_block 19.10 11:00');
+    return;
+  }
+
+  const result = await block(date, time);
+  const when = `${dateLabel(date, 'ru')}, ${time}`;
+  if (result === 'ok') await ctx.reply(`⛔ Окно ${when} занято — в боте его больше не видно.`);
+  else if (result === 'taken') await ctx.reply(`Окно ${when} уже занято.`);
+  else {
+    const times = slotsFor(date);
+    await ctx.reply(times.length
+      ? `В этот день окна только в ${times.join(', ')}.`
+      : 'В этот день диагностика не проводится.');
+  }
 });
 
 // ─── Broadcast (admin only) ──────────────────────────────────────────────────
@@ -536,9 +756,11 @@ bot.start(async (ctx) => {
       'Доступные команды:\n' +
       '/stats — статистика бота\n' +
       '/broadcast — рассылка всем пользователям\n' +
+      '/diag — записи на диагностику, освободить окно\n' +
+      '/diag_block 19.10 11:00 — занять окно вручную\n' +
       '/chatid — ID этого чата\n\n' +
-      'Кнопки внизу — такие же, как у родителей: можно протестировать заявку ' +
-      '(в группе, CRM и таблице она будет помечена 🧪 ТЕСТ).\n' +
+      'Кнопки внизу — такие же, как у родителей: можно протестировать запись ' +
+      '(в группе, CRM и таблице она будет помечена 🧪 ТЕСТ и займёт окно — освободите его через /diag).\n' +
       'Любой другой текст — вопрос мне в режиме администратора.',
       { reply_markup: mainKeyboard('ru') }
     );
@@ -551,6 +773,9 @@ bot.start(async (ctx) => {
 });
 
 // ─── Text messages ───────────────────────────────────────────────────────────
+// Both forms' button labels: parents may still have the old menu keyboard.
+const MAIN_BUTTONS = [T.ru.btnApply, T.uz.btnApply, T.ru.btnDiag, T.uz.btnDiag];
+
 bot.on('text', async (ctx) => {
   const chatType = ctx.chat.type;
   const chatId = ctx.chat.id;
@@ -607,8 +832,8 @@ bot.on('text', async (ctx) => {
   try {
     const form = forms.get(chatId);
 
-    // "📝 Оставить заявку" or "Консультация" — mid-form, pick up where they left off
-    if (text === T.ru.btnApply || text === T.uz.btnApply || (form && isApplyIntent(text))) {
+    // Main button or "Диагностика" — mid-form, pick up where they left off
+    if (MAIN_BUTTONS.includes(text) || (form && isApplyIntent(text))) {
       if (form) await sendStep(chatId);
       else await startForm(chatId);
       return;
@@ -651,7 +876,7 @@ bot.on('contact', async (ctx) => {
   const form = forms.get(chatId);
   if (!form || form.step !== 'phone') {
     const lang = await getLang(chatId);
-    await ctx.reply(T[lang].menu, { reply_markup: mainKeyboard(lang) });
+    await ctx.reply(menuText(lang), { reply_markup: mainKeyboard(lang) });
     return;
   }
 
@@ -689,6 +914,22 @@ bot.on('callback_query', async (ctx) => {
     doBroadcast(ctx).catch((e) => console.error('[broadcast] error:', e.message));
     return;
   }
+  if (data.startsWith('dfree:') && isAdminChat(ctx)) {
+    // dfree:YYYY-MM-DD:HH:MM
+    const date = data.slice(6, 16);
+    const time = data.slice(17);
+    const removed = await release(date, time);
+    const when = `${dateLabel(date, 'ru')}, ${time}`;
+    await ctx.answerCbQuery(removed.length ? 'Освобождено' : 'Уже свободно');
+    if (removed.length) {
+      await ctx.reply(`✅ Окно ${when} освобождено — родители снова могут на него записаться.`);
+      const child = removed.find((b) => !b.blocked);
+      if (child && !child.isTest) {
+        await notifyTeachers(child.chatId, `❌ Запись на диагностику отменена: ${when} (${child.childName}, ${child.phone})`);
+      }
+    }
+    return;
+  }
 
   await ctx.answerCbQuery();
   if (ctx.chat?.type !== 'private') return;
@@ -702,7 +943,7 @@ bot.on('callback_query', async (ctx) => {
 });
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
-prepareApplicationsSheet().catch((err) => console.error('[sheets] Failed to prepare «Заявки» tab:', err.message));
+prepareSheets().catch((err) => console.error('[sheets] Failed to prepare tabs:', err.message));
 
 bot.launch({ dropPendingUpdates: true });
 console.log('✅ SpeakMotion bot is running');

@@ -85,8 +85,9 @@ export async function trackMessage(chatId) {
 export async function trackStage(chatId, stage) {
   const data = await read();
   ensureUser(data, chatId);
-  // A second form attempt shouldn't hide that this parent already applied
-  if (data.users[chatId].stage === 'converted' && stage.startsWith('form_')) return;
+  // A second form attempt shouldn't hide that this parent already applied or booked
+  const done = ['converted', 'diag_booked'].includes(data.users[chatId].stage);
+  if (done && (stage.startsWith('form_') || stage.startsWith('diag_'))) return;
   data.users[chatId].stage = stage;
   data.users[chatId].lastSeen = new Date().toISOString();
   await write(data);
@@ -102,6 +103,20 @@ export async function trackConversion(chatId, enrollment = {}) {
   data.users[chatId].enrollment = enrollment;
   data.totals.converted++;
   data.daily[d].converted = (data.daily[d].converted || 0) + 1;
+
+  await write(data);
+}
+
+export async function trackDiagnostic(chatId, booking = {}) {
+  const data = await read();
+  const d = today();
+  ensureDay(data, d);
+  ensureUser(data, chatId);
+
+  data.users[chatId].stage = 'diag_booked';
+  data.users[chatId].diagnostic = booking;
+  data.totals.diagnostics = (data.totals.diagnostics || 0) + 1;
+  data.daily[d].diagnostics = (data.daily[d].diagnostics || 0) + 1;
 
   await write(data);
 }
@@ -191,7 +206,8 @@ export function buildStatsMessage(data) {
     stages[u.stage] = (stages[u.stage] || 0) + 1;
   }
 
-  const dropped = totalUsers - totals.converted - totals.escalated - totals.waitlisted;
+  const diagnostics = totals.diagnostics || 0;
+  const dropped = totalUsers - totals.converted - diagnostics - totals.escalated - totals.waitlisted;
 
   // Last 7 days
   const last7 = Object.entries(daily)
@@ -199,7 +215,7 @@ export function buildStatsMessage(data) {
     .slice(0, 7);
 
   const dailyLines = last7.map(([date, d]) =>
-    `  ${date}: 👤${d.sessions} ✅${d.converted || 0} 💬${d.messages}`
+    `  ${date}: 👤${d.sessions} ✅${d.converted || 0} 🔍${d.diagnostics || 0} 💬${d.messages}`
   ).join('\n');
 
   // Dropout reasons
@@ -227,6 +243,13 @@ export function buildStatsMessage(data) {
     form_phone: '4️⃣ Анкета: остановились на телефоне',
     form_confirm: '👀 Анкета: не нажали «Отправить»',
     converted: '✅ Заявка отправлена',
+    diag_age: '🔍 Диагностика: остановились на возрасте',
+    diag_date: '🔍 Диагностика: остановились на выборе дня',
+    diag_slot: '🔍 Диагностика: остановились на выборе времени',
+    diag_name: '🔍 Диагностика: остановились на имени ребёнка',
+    diag_phone: '🔍 Диагностика: остановились на телефоне',
+    diag_confirm: '🔍 Диагностика: не нажали «Записаться»',
+    diag_booked: '🔍 Записаны на диагностику',
     schedule_shown: '📋 (старое) Увидели расписание',
     slot_selected: '✋ (старое) Выбрали слот',
     escalated: '🔔 (старое) Переданы учителю',
@@ -245,6 +268,7 @@ export function buildStatsMessage(data) {
     `🚀 Всего сессий: ${totals.sessions}`,
     `💬 Всего сообщений: ${totals.messages}`,
     ``,
+    `🔍 Записей на диагностику: ${diagnostics}${pct(diagnostics)}`,
     `✅ Заявок отправлено: ${totals.converted}${pct(totals.converted)}`,
     totals.escalated ? `🔔 Эскалаций (старый формат): ${totals.escalated}` : null,
     totals.waitlisted ? `⏳ Лист ожидания (старый формат): ${totals.waitlisted}` : null,
@@ -257,7 +281,7 @@ export function buildStatsMessage(data) {
     reasonLines,
     ``,
     `📅 Последние 7 дней:`,
-    `  (👤сессии ✅заявки 💬сообщения)`,
+    `  (👤сессии ✅заявки 🔍диагностика 💬сообщения)`,
     dailyLines || '  Нет данных',
   ].filter((line) => line !== null).join('\n');
 }

@@ -1,3 +1,10 @@
 node_modules/
 .env
+.env.bak*
+google-credentials.json
+
+# Runtime data written by the bot on the server
+analytics.json
+diagnostics.json
+reply_map.json
 waitlist.json

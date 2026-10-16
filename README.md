@@ -79,10 +79,11 @@ Until you have real links, the bot uses placeholder URLs — parents can still r
 
 ```
 speakmotion-bot/
-├── index.js        — Bot entry point: menu, application form flow, broadcast, CRM intake
-├── form.js         — Form texts (ru/uz), keyboards and input parsers
+├── index.js        — Bot entry point: menu, form flows, admin commands, broadcast, CRM intake
+├── form.js         — DIAGNOSTIC_MODE switch, form texts (ru/uz), keyboards, input parsers
+├── diagnostics.js  — Diagnostic windows, availability and bookings (diagnostics.json)
 ├── deepseek.js     — DeepSeek API wrapper + conversation history + system prompt
-├── sheets.js       — Writes applications to the «Заявки» tab in Google Sheets
+├── sheets.js       — Writes to the «Заявки» and «Диагностика» tabs in Google Sheets
 ├── analytics.js    — Stats and funnel (analytics.json), /stats message
 ├── reminder.js     — One 30-minute reminder per silent chat
 ├── .env            — Your secrets (never commit this)
@@ -94,6 +95,17 @@ speakmotion-bot/
 
 ## How the Bot Works
 
+### Free diagnostic (current mode, `DIAGNOSTIC_MODE = true` in `form.js`)
+
+1. Parent opens the bot → picks a language → menu: «🔍 Записаться на диагностику» or «❓ Задать вопрос»
+2. Booking, 5 steps: child's age (5–10 only; other ages get a polite refusal) → day (free days for the next 2 weeks) → time (free 30-minute windows) → child's name → phone
+3. Parent confirms → gets the date, time and address; the booking goes to the teachers' group, the CRM («Заявки») and Google Sheets (tab «Диагностика»)
+4. Each window takes one child; booked windows disappear for other parents. Windows starting in less than 2 hours aren't offered. Weekly windows are set in `SLOTS` in `diagnostics.js`.
+
+Admin commands: `/diag` — upcoming bookings with «❌ Освободить» buttons (parent cancelled); `/diag_block 19.10 11:00` — mark a window as taken (e.g. booked by phone).
+
+### Application form (`DIAGNOSTIC_MODE = false`)
+
 1. Parent opens the bot → picks a language (Русский / O'zbekcha)
 2. Menu: «📝 Оставить заявку» or «❓ Задать вопрос»
 3. Application form, 4 steps: child's age (buttons) → child's name → convenient time (buttons) → phone (Telegram "share contact" button or typed)
@@ -102,7 +114,9 @@ speakmotion-bot/
 6. «❓ Задать вопрос» → the AI answers questions (methodology, prices, address) and opens the form when the parent is ready
 7. Teachers answer a parent by replying to the notification in the group with `!текст!`
 
-Short messages like «Консультация» or «записаться» open the form directly. A parent who goes silent gets one reminder after 30 minutes. The admin sees the same menu and can submit test applications (marked 🧪 ТЕСТ).
+### Both modes
+
+Short messages like «Диагностика», «Консультация» or «записаться» open the menu's form directly. A parent who goes silent gets one reminder after 30 minutes. The admin sees the same menu and can submit test applications (marked 🧪 ТЕСТ).
 
 Form progress and AI conversation history are stored in memory (per chat ID) and reset on `/start`.
 
