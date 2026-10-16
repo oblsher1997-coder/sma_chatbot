@@ -1053,6 +1053,21 @@ bot.on('callback_query', async (ctx) => {
 });
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
+// The "/" command menu is set for the admin's chat only — parents use the buttons.
+const ADMIN_COMMANDS = [
+  { command: 'start', description: 'Меню как у родителей (для теста записи)' },
+  { command: 'stats', description: 'Статистика бота' },
+  { command: 'diag', description: 'Записи на диагностику, освободить окно' },
+  { command: 'diag_block', description: 'Занять окно вручную: /diag_block 19.10 11:00' },
+  { command: 'broadcast', description: 'Рассылка всем пользователям' },
+  { command: 'cancel', description: 'Отменить рассылку до отправки' },
+  { command: 'chatid', description: 'ID текущего чата' },
+];
+if (ADMIN_CHAT_ID) {
+  bot.telegram.setMyCommands(ADMIN_COMMANDS, { scope: { type: 'chat', chat_id: Number(ADMIN_CHAT_ID) } })
+    .catch((err) => console.error('[commands] Failed to set admin menu:', err.message));
+}
+
 prepareSheets().catch((err) => console.error('[sheets] Failed to prepare tabs:', err.message));
 setInterval(() => sendDiagnosticReminders().catch((err) => console.error('[diag-reminder] error:', err.message)), 60_000);
 
