@@ -32,6 +32,9 @@ const REPLY_MAP_PATH = path.join(__dirname, 'reply_map.json');
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID ? String(process.env.ADMIN_CHAT_ID) : null;
 const TEACHER_GROUP_CHAT_ID = process.env.TEACHER_GROUP_CHAT_ID;
+// Forum topic in the teachers' group for applications («Заявкалар»).
+// Empty → the group's general chat. Replies inside the topic stay in it on their own.
+const TEACHER_TOPIC_ID = Number(process.env.TEACHER_TOPIC_ID) || undefined;
 
 // CRM intake: заявки из бота видны в разделе «Заявки» CRM.
 // Если переменные не заданы, шаг тихо пропускается.
@@ -306,7 +309,7 @@ async function acceptPhone(ctx, form, phone, parentName) {
 
 async function notifyTeachers(chatId, text) {
   try {
-    const sent = await bot.telegram.sendMessage(TEACHER_GROUP_CHAT_ID, text);
+    const sent = await bot.telegram.sendMessage(TEACHER_GROUP_CHAT_ID, text, { message_thread_id: TEACHER_TOPIC_ID });
     await registerReply(sent.message_id, chatId);
   } catch (err) {
     console.error('[teachers] Failed to notify group:', err.message);
