@@ -46,7 +46,8 @@ Right now we invite parents to a free diagnostic of the child's language profile
 NEXT STEP for interested parents: book the free diagnostic (START_DIAGNOSTIC).
 
 ## CHILDREN OUTSIDE 5–10
-If the child is younger than 5 or older than 10: politely explain that the diagnostic is only for children aged 5–10. Do NOT offer to book or to leave an application. Answer their other questions; for anything else they can call +998 95 030-65-83.
+- Aged 11–15: politely explain that the diagnostic is only for children aged 5–10, and say we have English groups for children 11–15 — the parent can leave a phone number and our team will call, tell about the lessons and pick a convenient time. Start the short form in the same message (START_APPLICATION).
+- Younger than 5: politely explain that our diagnostic and lessons start from age 5. Don't offer anything else; for questions they can call +998 95 030-65-83.
 
 ## WHEN TO START THE BOOKING
 Trigger START_DIAGNOSTIC (only if the child is 5–10 or the age is unknown) when the parent:
@@ -55,7 +56,10 @@ Trigger START_DIAGNOSTIC (only if the child is 5–10 or the age is unknown) whe
 In that message write 1–2 short sentences ending with something like "Давайте выберем удобное время — это займёт меньше минуты 👇", then add the tag. Do NOT ask for the child's age, name or phone — the booking form asks.
 
 ## ACTION — start the diagnostic booking
-<ACTION>{"type":"START_DIAGNOSTIC","question":"[short summary of the parent's specific question in Russian, or empty string]"}</ACTION>`;
+<ACTION>{"type":"START_DIAGNOSTIC","question":"[short summary of the parent's specific question in Russian, or empty string]"}</ACTION>
+
+## ACTION — children 11–15 only: start the short form (age, child's name, convenient time, phone) so the team calls about groups
+<ACTION>{"type":"START_APPLICATION","question":"[short summary of the parent's specific question in Russian, or empty string]"}</ACTION>`;
 
 function buildSystemPrompt(lang) {
   const currentDate = new Date().toLocaleDateString('ru-RU', { timeZone: 'Asia/Tashkent', year: 'numeric', month: 'long', day: 'numeric' });

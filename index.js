@@ -14,7 +14,7 @@ import {
   menuText, remindMenuText,
   langKeyboard, mainKeyboard, ageKeyboard, diagAgeKeyboard, timeKeyboard, dateKeyboard,
   slotKeyboard, phoneKeyboard, confirmKeyboard, continueKeyboard, applyKeyboard,
-  attendKeyboard, cantComeKeyboard,
+  attendKeyboard, cantComeKeyboard, diagOtherAgeKeyboard, olderKeyboard,
   parseAge, parseTime, parseClock, normalizePhone, isApplyIntent, looksLikeQuestion,
   groupMessage, diagGroupMessage, diagCancelMessage,
 } from './form.js';
@@ -193,16 +193,23 @@ function scheduleUserReminder(chatId) {
   scheduleReminder(chatId, async () => {
     const user = await getUserData(chatId);
     if (!user || user.reminded || DONE_STAGES.includes(user.stage)) return;
-    // Told the diagnostic isn't for their child's age — don't invite them again
-    if (DIAGNOSTIC_MODE && user.dropoutReason === 'age_out_of_range') return;
     const lang = await getLang(chatId);
     const form = forms.get(chatId);
-    const text = form
-      ? (form.kind === 'diag' ? T[lang].diagRemindForm : T[lang].remindForm)
-      : remindMenuText(lang);
-    await bot.telegram.sendMessage(chatId, text, {
-      reply_markup: form ? continueKeyboard(lang) : applyKeyboard(lang),
-    });
+    let text, markup;
+    if (form) {
+      const diag = form.kind === 'diag';
+      text = diag ? T[lang].diagRemindForm : T[lang].remindForm;
+      markup = continueKeyboard(lang, diag ? T[lang].btnContinueDiag : undefined);
+    } else if (user.stage === 'diag_older') {
+      // Child 11–15 came for the diagnostic but didn't leave a number yet
+      [text, markup] = [T[lang].olderRemind, olderKeyboard(0, lang)];
+    } else if (DIAGNOSTIC_MODE && user.dropoutReason === 'age_out_of_range') {
+      // Told the diagnostic isn't for their child's age — don't invite them again
+      return;
+    } else {
+      [text, markup] = [remindMenuText(lang), applyKeyboard(lang)];
+    }
+    await bot.telegram.sendMessage(chatId, text, { reply_markup: markup });
     await setReminded(chatId);
   });
 }
@@ -277,19 +284,43 @@ async function startForm(chatId, question = null, kind = MAIN_KIND) {
   await enterStep(chatId);
 }
 
-// The diagnostic is only for children 5–10 — politely close the booking.
-async function declineDiagnosticAge(ctx) {
+// The diagnostic is only for children 5–10. Younger (or over 15): politely close.
+async function declineDiagnosticAge(ctx, age) {
   const chatId = ctx.chat.id;
   forms.delete(chatId);
   cancelReminder(chatId);
   if (ctx.callbackQuery) await clearButtons(ctx);
   if (!isAdminId(chatId)) await trackDropout(chatId, 'age_out_of_range');
   const lang = await getLang(chatId);
-  await ctx.reply(T[lang].diagAgeDecline, { reply_markup: mainKeyboard(lang) });
+  await ctx.reply(age === 'lt5' ? T[lang].diagTooYoung : T[lang].diagAgeDecline, { reply_markup: mainKeyboard(lang) });
+}
+
+// Children 11–15: no diagnostic, but we have groups — offer to leave a number.
+async function offerOlderGroups(ctx, age) {
+  const chatId = ctx.chat.id;
+  forms.delete(chatId);
+  const lang = await getLang(chatId);
+  if (ctx.callbackQuery) await markChosen(ctx, ageLabel(age, lang));
+  if (!isAdminId(chatId)) await trackStage(chatId, 'diag_older');
+  await ctx.reply(T[lang].olderOffer, { reply_markup: olderKeyboard(age, lang) });
+  scheduleUserReminder(chatId);
+}
+
+// The short application form for an older child, age already known (0 = ask).
+async function startOlderForm(chatId, age) {
+  forms.set(chatId, {
+    kind: 'app',
+    step: age ? 'name' : 'age',
+    age: age || undefined,
+    question: 'Пришли на диагностику (5–10 лет), но ребёнок старше — расскажите о группах',
+  });
+  await enterStep(chatId);
 }
 
 async function acceptAge(ctx, form, age) {
-  if (form.kind === 'diag' && !isValidAge(age)) return declineDiagnosticAge(ctx);
+  if (form.kind === 'diag' && !isValidAge(age)) {
+    return age !== 'lt5' && age >= 11 && age <= 15 ? offerOlderGroups(ctx, age) : declineDiagnosticAge(ctx, age);
+  }
   form.age = age;
   advance(form);
   if (ctx.callbackQuery) await markChosen(ctx, ageLabel(age, await getLang(ctx.chat.id)));
@@ -468,6 +499,11 @@ async function handleFormCallback(ctx, data) {
     return data === 'form:continue' && forms.has(chatId) ? sendStep(chatId) : startForm(chatId);
   }
 
+  if (data.startsWith('older:')) {
+    await clearButtons(ctx);
+    return startOlderForm(chatId, Number(data.slice(6)));
+  }
+
   const lang = await getLang(chatId);
   let form = forms.get(chatId);
 
@@ -478,7 +514,12 @@ async function handleFormCallback(ctx, data) {
       forms.set(chatId, form);
     }
     if (form.step !== 'age') return; // stale button from an earlier message
-    if (data === 'age:other') return declineDiagnosticAge(ctx);
+    if (data === 'age:other') {
+      // Show the ages outside 5–10 so we know whether to offer groups
+      await markChosen(ctx, T[lang].diagOtherAge);
+      await ctx.reply(T[lang].diagOtherAgePrompt, { reply_markup: diagOtherAgeKeyboard(lang) });
+      return;
+    }
     return acceptAge(ctx, form, data === 'age:lt5' ? 'lt5' : Number(data.slice(4)));
   }
 
@@ -626,11 +667,14 @@ async function handleAction(chatId, action) {
   if (!action) return;
 
   switch (action.type) {
-    // Either way the menu's main form opens — the AI may still use the other name
+    // In diagnostic mode the AI opens the application form only for children 11–15
     case 'START_APPLICATION':
     case 'START_DIAGNOSTIC':
       // Already filling the form — the caller repeats the current step instead
-      if (!forms.has(chatId)) await startForm(chatId, action.question);
+      if (!forms.has(chatId)) {
+        const kind = action.type === 'START_DIAGNOSTIC' ? MAIN_KIND : 'app';
+        await startForm(chatId, action.question, kind);
+      }
       break;
 
     case 'DROPOUT':
@@ -942,8 +986,10 @@ bot.on('contact', async (ctx) => {
     return;
   }
 
+  // Telegram contacts are always full international numbers, sometimes without "+"
   const contact = ctx.message.contact;
-  const phone = normalizePhone(contact.phone_number) || contact.phone_number;
+  const digits = contact.phone_number.replace(/\D/g, '');
+  const phone = normalizePhone(`+${digits}`) || `+${digits}`;
   await acceptPhone(ctx, form, phone, fullName(contact));
 });
 

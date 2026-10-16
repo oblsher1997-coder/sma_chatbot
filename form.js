@@ -31,8 +31,8 @@ export const T = {
     stepPhone: '📝 Заявка · 4/4\n\nОтправьте номер телефона — нажмите кнопку ниже 👇\nИли напишите номер вручную.',
     btnPhone: '📱 Отправить номер',
     badPhone:
-      'Не получилось распознать номер 🤔\n' +
-      'Нажмите кнопку «📱 Отправить номер» или напишите номер в формате +998 90 123 45 67',
+      'Номер выглядит неполным 🤔\n' +
+      'Проверьте цифры: нужно +998 и ещё 9 цифр, например +998 90 123 45 67. Или нажмите кнопку «📱 Отправить номер».',
     phoneOk: '✅ Номер получен',
     confirm: (f) =>
       'Проверьте заявку:\n\n' +
@@ -62,6 +62,15 @@ export const T = {
     diagAgeDecline:
       'Диагностика проводится только для детей от 5 до 10 лет 🙏\n\n' +
       'Если у вас есть вопросы — нажмите «❓ Задать вопрос», я с радостью отвечу.',
+    diagTooYoung:
+      'Диагностика и занятия у нас — для детей с 5 лет 🙏 Будем рады видеть вас, когда ребёнку исполнится 5!\n\n' +
+      'Если есть вопросы — нажмите «❓ Задать вопрос», я с радостью отвечу.',
+    diagOtherAgePrompt: 'Укажите возраст ребёнка:',
+    olderOffer:
+      'Диагностика проводится для детей 5–10 лет 🙏\n\n' +
+      'Для детей 11–15 лет у нас есть группы английского. Оставьте номер — мы позвоним, расскажем о занятиях и подберём удобное время 😊',
+    btnLeaveNumber: '📝 Оставить номер',
+    olderRemind: 'Хотите узнать о группах английского для детей 11–15 лет? Оставьте номер — мы позвоним и всё расскажем 😊',
     diagDate: '🔍 Диагностика · 2/5\n\nВыберите удобный день:',
     diagNoDates:
       'К сожалению, на ближайшие две недели все окна для диагностики заняты 😔\n' +
@@ -84,6 +93,7 @@ export const T = {
       `📍 ${ADDRESS}\n${MAP_URL}\n\n` +
       'Если планы изменятся — напишите сюда или позвоните: +998 95 030-65-83. Ждём вас! 😊',
     diagRemindForm: 'Вы не закончили запись на диагностику — осталось всего пару шагов 😊',
+    btnContinueDiag: '▶️ Продолжить запись',
     diagRemindMenu: 'Хотите узнать языковой профиль ребёнка? Запишитесь на бесплатную диагностику — 30 минут в нашем центре 😊',
     // Reminders about a booked diagnostic (b = booking: date, time, childName)
     // The child's name stays in its own line: Russian names can't be declined reliably
@@ -118,8 +128,8 @@ export const T = {
     stepPhone: "📝 Ariza · 4/4\n\nTelefon raqamingizni yuboring — pastdagi tugmani bosing 👇\nYoki raqamni qo'lda yozing.",
     btnPhone: '📱 Raqamni yuborish',
     badPhone:
-      "Raqamni aniqlab bo'lmadi 🤔\n" +
-      '«📱 Raqamni yuborish» tugmasini bosing yoki raqamni +998 90 123 45 67 formatida yozing',
+      "Raqam to'liq emasga o'xshaydi 🤔\n" +
+      "Raqamlarni tekshiring: +998 va yana 9 ta raqam bo'lishi kerak, masalan +998 90 123 45 67. Yoki «📱 Raqamni yuborish» tugmasini bosing.",
     phoneOk: '✅ Raqam qabul qilindi',
     confirm: (f) =>
       'Arizani tekshiring:\n\n' +
@@ -149,6 +159,15 @@ export const T = {
     diagAgeDecline:
       "Diagnostika faqat 5 yoshdan 10 yoshgacha bo'lgan bolalar uchun o'tkaziladi 🙏\n\n" +
       "Savollaringiz bo'lsa — «❓ Savol berish» tugmasini bosing, mamnuniyat bilan javob beraman.",
+    diagTooYoung:
+      "Diagnostika va mashg'ulotlarimiz 5 yoshdan katta bolalar uchun 🙏 Farzandingiz 5 yoshga to'lganda sizni kutib qolamiz!\n\n" +
+      "Savollaringiz bo'lsa — «❓ Savol berish» tugmasini bosing, mamnuniyat bilan javob beraman.",
+    diagOtherAgePrompt: 'Farzandingiz yoshini tanlang:',
+    olderOffer:
+      "Diagnostika 5–10 yoshli bolalar uchun o'tkaziladi 🙏\n\n" +
+      "11–15 yoshli bolalar uchun bizda ingliz tili guruhlari bor. Raqamingizni qoldiring — qo'ng'iroq qilib, mashg'ulotlar haqida gapirib beramiz va qulay vaqtni tanlaymiz 😊",
+    btnLeaveNumber: '📝 Raqam qoldirish',
+    olderRemind: "11–15 yoshli bolalar uchun ingliz tili guruhlari haqida bilmoqchimisiz? Raqamingizni qoldiring — qo'ng'iroq qilib, hammasini aytib beramiz 😊",
     diagDate: '🔍 Diagnostika · 2/5\n\nQulay kunni tanlang:',
     diagNoDates:
       'Afsuski, yaqin ikki haftaga diagnostika uchun barcha vaqtlar band 😔\n' +
@@ -171,6 +190,7 @@ export const T = {
       `📍 ${ADDRESS}\n${MAP_URL}\n\n` +
       "Rejalaringiz o'zgarsa — shu yerga yozing yoki qo'ng'iroq qiling: +998 95 030-65-83. Sizni kutamiz! 😊",
     diagRemindForm: 'Diagnostikaga yozilishni yakunlamadingiz — bir necha qadam qoldi 😊',
+    btnContinueDiag: '▶️ Davom ettirish',
     diagRemindMenu: "Farzandingizning til profilini bilmoqchimisiz? Bepul diagnostikaga yoziling — markazimizda 30 daqiqa 😊",
     diagRemindDayBefore: (b) =>
       `Eslatma: ertaga, ${dateLabel(b.date, 'uz')}, soat ${b.time}–${slotEnd(b.time)} da ${b.childName} uchun bepul diagnostika 🔍\n\n` +
@@ -274,6 +294,17 @@ export function diagAgeKeyboard(lang) {
   };
 }
 
+// After "Другой возраст": ages outside the diagnostic range
+export function diagOtherAgeKeyboard(lang) {
+  const row = (ages) => ages.map((n) => ({ text: String(n), callback_data: `age:${n}` }));
+  return { inline_keyboard: [row([11, 12, 13]), row([14, 15]), [{ text: T[lang].ageUnder5, callback_data: 'age:lt5' }]] };
+}
+
+// "Оставить номер" for children 11–15; age 0 = unknown (asked in the form)
+export function olderKeyboard(age, lang) {
+  return { inline_keyboard: [[{ text: T[lang].btnLeaveNumber, callback_data: `older:${age}` }]] };
+}
+
 export function timeKeyboard(lang) {
   const btn = (key) => ({ text: `${TIMES[key].emoji} ${TIMES[key][lang]}`, callback_data: `time:${key}` });
   return { inline_keyboard: [[btn('morning'), btn('day')], [btn('evening'), btn('any')]] };
@@ -306,8 +337,8 @@ export function confirmKeyboard(lang, sendText = T[lang].btnSend) {
   };
 }
 
-export function continueKeyboard(lang) {
-  return { inline_keyboard: [[{ text: T[lang].btnContinue, callback_data: 'form:continue' }]] };
+export function continueKeyboard(lang, text = T[lang].btnContinue) {
+  return { inline_keyboard: [[{ text, callback_data: 'form:continue' }]] };
 }
 
 // Under the evening-before reminder
@@ -354,15 +385,19 @@ export function parseClock(text) {
   return m ? `${m[1].padStart(2, '0')}:${m[2]}` : null;
 }
 
-// Returns a readable +998 number, or null if the text isn't a phone number.
+// Returns a readable phone number, or null if it can't be a real one.
+// Uzbek numbers need exactly 9 digits after 998; foreign numbers are only
+// accepted in international format, starting with "+".
 export function normalizePhone(raw) {
-  let d = String(raw).replace(/\D/g, '');
+  const text = String(raw).trim();
+  const international = text.startsWith('+');
+  let d = text.replace(/\D/g, '');
+  if (!international && d.length === 10 && d.startsWith('8')) d = d.slice(1); // old format: 8 90 123 45 67
   if (d.length === 9) d = `998${d}`;
-  if (d.length === 12 && d.startsWith('998')) {
-    return `+998 ${d.slice(3, 5)} ${d.slice(5, 8)} ${d.slice(8, 10)} ${d.slice(10)}`;
+  if (d.startsWith('998')) {
+    return d.length === 12 ? `+998 ${d.slice(3, 5)} ${d.slice(5, 8)} ${d.slice(8, 10)} ${d.slice(10)}` : null;
   }
-  if (d.length >= 10 && d.length <= 15) return `+${d}`;
-  return null;
+  return international && d.length >= 11 && d.length <= 15 ? `+${d}` : null;
 }
 
 const APPLY_KEYWORDS = [

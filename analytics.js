@@ -260,6 +260,7 @@ export function buildStatsMessage(data) {
     diag_confirm: '🔍 Диагностика: не нажали «Записаться»',
     diag_booked: '🔍 Записаны на диагностику',
     diag_cancelled: '🔍 Отменили запись на диагностику',
+    diag_older: '🔍 Ребёнок 11–15: предложили оставить номер, не оставили',
     schedule_shown: '📋 (старое) Увидели расписание',
     slot_selected: '✋ (старое) Выбрали слот',
     escalated: '🔔 (старое) Переданы учителю',
