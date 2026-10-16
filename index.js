@@ -2,23 +2,25 @@ import { Telegraf } from 'telegraf';
 import 'dotenv/config';
 import { chat, resetConversation } from './deepseek.js';
 import {
-  trackSession, trackMessage, trackStage, trackConversion, trackDiagnostic,
+  trackSession, trackMessage, trackStage, trackConversion, trackDiagnostic, trackDiagnosticCancel,
   trackDropout, setReminded, setLanguage, getUserData,
   getStats, buildStatsMessage,
   getAllUserIds, markBlocked,
 } from './analytics.js';
 import { scheduleReminder, cancelReminder } from './reminder.js';
-import { appendApplication, appendDiagnostic, prepareSheets } from './sheets.js';
+import { appendApplication, appendDiagnostic, noteDiagnostic, prepareSheets } from './sheets.js';
 import {
   DIAGNOSTIC_MODE, WELCOME, T, TIMES, ageLabel, timeLabel, dateLabel, dateButton,
   menuText, remindMenuText,
   langKeyboard, mainKeyboard, ageKeyboard, diagAgeKeyboard, timeKeyboard, dateKeyboard,
   slotKeyboard, phoneKeyboard, confirmKeyboard, continueKeyboard, applyKeyboard,
+  attendKeyboard, cantComeKeyboard,
   parseAge, parseTime, parseClock, normalizePhone, isApplyIntent, looksLikeQuestion,
-  groupMessage, diagGroupMessage,
+  groupMessage, diagGroupMessage, diagCancelMessage,
 } from './form.js';
 import {
   freeDates, freeTimes, book, upcoming, release, block, slotEnd, slotsFor, isValidAge, parseDayMonth,
+  confirmOwn, cancelOwn, dueReminders, markReminded,
 } from './diagnostics.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -543,6 +545,62 @@ async function handleFormCallback(ctx, data) {
   }
 }
 
+// ─── Diagnostic reminders ────────────────────────────────────────────────────
+// Checked every minute. "Sent" flags live in diagnostics.json, so a restart
+// neither repeats nor loses a reminder.
+const sheetLabels = (b) => ({ date: dateLabel(b.date, 'ru'), time: `${b.time}–${slotEnd(b.time)}`, chatId: b.chatId });
+let remindersRunning = false;
+
+async function sendDiagnosticReminders() {
+  if (remindersRunning) return;
+  remindersRunning = true;
+  try {
+    for (const { booking: b, kind } of dueReminders()) {
+      const lang = b.lang === 'uz' ? 'uz' : 'ru';
+      const [text, markup] = kind === 'dayBefore'
+        ? [T[lang].diagRemindDayBefore(b), attendKeyboard(b, lang)]
+        : [T[lang].diagRemindSoon(b), cantComeKeyboard(b, lang)];
+      try {
+        await bot.telegram.sendMessage(b.chatId, text, { reply_markup: markup });
+        await markReminded(b, kind);
+        console.log(`[diag-reminder] ${kind} → ${b.chatId} (${b.date} ${b.time})`);
+      } catch (err) {
+        console.error('[diag-reminder] Failed:', b.chatId, err.message);
+        // Bot blocked or chat gone — don't retry every minute
+        if ([400, 403].includes(err?.response?.error_code)) await markReminded(b, kind);
+      }
+    }
+  } finally {
+    remindersRunning = false;
+  }
+}
+
+// "✅ Приду" / "❌ Не смогу прийти" under a reminder: dok:YYYY-MM-DD:HH:MM / dno:…
+async function handleAttendanceCallback(ctx, data) {
+  const chatId = ctx.chat.id;
+  const lang = await getLang(chatId);
+  const [date, time] = [data.slice(4, 14), data.slice(15)];
+  await clearButtons(ctx);
+
+  if (data.startsWith('dok:')) {
+    const own = await confirmOwn(date, time, chatId);
+    await ctx.reply(own ? T[lang].diagComing : T[lang].diagAlreadyCancelled, { reply_markup: mainKeyboard(lang) });
+    if (own) await noteDiagnostic(sheetLabels(own), '✅ подтвердил');
+    return;
+  }
+
+  const own = await cancelOwn(date, time, chatId);
+  if (!own) {
+    await ctx.reply(T[lang].diagAlreadyCancelled, { reply_markup: mainKeyboard(lang) });
+    return;
+  }
+  console.log(`[diag-cancel] ${chatId} cancelled ${date} ${time}`);
+  await ctx.reply(T[lang].diagCancelled, { reply_markup: mainKeyboard(lang) });
+  await notifyTeachers(chatId, diagCancelMessage(own));
+  await noteDiagnostic(sheetLabels(own), '❌ отменил родитель');
+  if (!own.isTest) await trackDiagnosticCancel(chatId);
+}
+
 // ─── AI (free-text questions) ────────────────────────────────────────────────
 // Returns the AI's action for parents; admin chats never trigger actions.
 async function askAI(ctx, text) {
@@ -621,7 +679,8 @@ bot.command('diag', async (ctx) => {
     }
     lines.push(b.blocked
       ? `  ${b.time} — ⛔ занято вручную`
-      : `  ${b.time} — ${b.childName}, ${ageLabel(b.age, 'ru')} · ${b.parentName}, ${b.phone}${b.isTest ? ' · 🧪 ТЕСТ' : ''}`);
+      : `  ${b.time} — ${b.childName}, ${ageLabel(b.age, 'ru')} · ${b.parentName}, ${b.phone}` +
+        `${b.confirmed ? ' · ✅ подтвердил' : ''}${b.isTest ? ' · 🧪 ТЕСТ' : ''}`);
   }
   lines.push('', 'Освободить окно (если родитель отменил) — кнопкой ниже.', 'Занять окно вручную: /diag_block 19.10 11:00');
 
@@ -927,6 +986,7 @@ bot.on('callback_query', async (ctx) => {
       if (child && !child.isTest) {
         await notifyTeachers(child.chatId, `❌ Запись на диагностику отменена: ${when} (${child.childName}, ${child.phone})`);
       }
+      if (child) await noteDiagnostic(sheetLabels(child), '❌ освобождено админом');
     }
     return;
   }
@@ -936,7 +996,8 @@ bot.on('callback_query', async (ctx) => {
   cancelReminder(ctx.chat.id);
 
   try {
-    await handleFormCallback(ctx, data);
+    if (data.startsWith('dok:') || data.startsWith('dno:')) await handleAttendanceCallback(ctx, data);
+    else await handleFormCallback(ctx, data);
   } catch (err) {
     console.error('[callback] Error:', err.message);
   }
@@ -944,6 +1005,7 @@ bot.on('callback_query', async (ctx) => {
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 prepareSheets().catch((err) => console.error('[sheets] Failed to prepare tabs:', err.message));
+setInterval(() => sendDiagnosticReminders().catch((err) => console.error('[diag-reminder] error:', err.message)), 60_000);
 
 bot.launch({ dropPendingUpdates: true });
 console.log('✅ SpeakMotion bot is running');

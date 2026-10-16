@@ -121,6 +121,15 @@ export async function trackDiagnostic(chatId, booking = {}) {
   await write(data);
 }
 
+// Parent tapped "Не смогу прийти" under a reminder
+export async function trackDiagnosticCancel(chatId) {
+  const data = await read();
+  ensureUser(data, chatId);
+  data.users[chatId].stage = 'diag_cancelled';
+  data.totals.diagCancelled = (data.totals.diagCancelled || 0) + 1;
+  await write(data);
+}
+
 export async function trackEscalation(chatId) {
   const data = await read();
   const d = today();
@@ -250,6 +259,7 @@ export function buildStatsMessage(data) {
     diag_phone: '🔍 Диагностика: остановились на телефоне',
     diag_confirm: '🔍 Диагностика: не нажали «Записаться»',
     diag_booked: '🔍 Записаны на диагностику',
+    diag_cancelled: '🔍 Отменили запись на диагностику',
     schedule_shown: '📋 (старое) Увидели расписание',
     slot_selected: '✋ (старое) Выбрали слот',
     escalated: '🔔 (старое) Переданы учителю',
@@ -269,6 +279,7 @@ export function buildStatsMessage(data) {
     `💬 Всего сообщений: ${totals.messages}`,
     ``,
     `🔍 Записей на диагностику: ${diagnostics}${pct(diagnostics)}`,
+    totals.diagCancelled ? `   из них отменили по напоминанию: ${totals.diagCancelled}` : null,
     `✅ Заявок отправлено: ${totals.converted}${pct(totals.converted)}`,
     totals.escalated ? `🔔 Эскалаций (старый формат): ${totals.escalated}` : null,
     totals.waitlisted ? `⏳ Лист ожидания (старый формат): ${totals.waitlisted}` : null,

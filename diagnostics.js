@@ -22,6 +22,14 @@ const MIN_LEAD_MIN = 120; // no booking less than 2 hours before the window star
 const CAPACITY = 1;       // children per window
 const TASHKENT_UTC_OFFSET_MIN = 5 * 60; // Asia/Tashkent is UTC+5 all year
 
+// Reminders: the evening before (only between these times, so a reminder missed
+// while the bot was down never arrives at night) and 2 hours before the window.
+const DAY_BEFORE_FROM = '19:00';
+const DAY_BEFORE_UNTIL = '21:30';
+const SOON_BEFORE_MIN = 120;
+const SOON_LATEST_BEFORE_MIN = 30;
+const FRESH_BOOKING_MIN = 60; // booked less than an hour before a reminder → skip it
+
 // Bookings are kept in memory and written through to diagnostics.json, so the
 // availability check and the booking happen with no await in between.
 let bookings = null;
@@ -113,7 +121,7 @@ export function freeDates() {
 // Returns false if the window was taken (or became too close) in the meantime.
 export async function book(entry) {
   if (!freeTimes(entry.date).includes(entry.time)) return false;
-  all().push({ ...entry, createdAt: new Date().toISOString() });
+  all().push({ ...entry, createdAt: new Date(Date.now()).toISOString() });
   await save();
   return true;
 }
@@ -135,11 +143,66 @@ export async function release(date, time) {
   return removed;
 }
 
+// ─── Parent's own booking (from reminder buttons) ───────────────────────────
+// The chat id must match, so a parent can only touch their own booking.
+function findOwn(date, time, chatId) {
+  return all().find((b) =>
+    b.date === date && b.time === time && !b.blocked && String(b.chatId) === String(chatId));
+}
+
+export async function confirmOwn(date, time, chatId) {
+  const own = findOwn(date, time, chatId);
+  if (!own) return null;
+  own.confirmed = true;
+  await save();
+  return own;
+}
+
+// Returns the cancelled booking, or null if it no longer exists.
+export async function cancelOwn(date, time, chatId) {
+  const own = findOwn(date, time, chatId);
+  if (!own) return null;
+  bookings = all().filter((b) => b !== own);
+  await save();
+  return own;
+}
+
+// ─── Reminders ───────────────────────────────────────────────────────────────
+// Minutes since the epoch on the Tashkent wall clock
+const wallNow = () => Math.floor(Date.now() / 60_000) + TASHKENT_UTC_OFFSET_MIN;
+const wallAt = (date, time) => Date.parse(`${date}T${time}:00Z`) / 60_000;
+const wallFromIso = (iso) => Math.floor(Date.parse(iso) / 60_000) + TASHKENT_UTC_OFFSET_MIN;
+
+// Bookings whose 'dayBefore' or 'soon' reminder is due right now.
+export function dueReminders() {
+  const now = wallNow();
+  const due = [];
+  for (const b of all()) {
+    if (b.blocked || !b.chatId) continue;
+    const start = wallAt(b.date, b.time);
+    const created = wallFromIso(b.createdAt);
+    const windows = {
+      dayBefore: [wallAt(addDays(b.date, -1), DAY_BEFORE_FROM), wallAt(addDays(b.date, -1), DAY_BEFORE_UNTIL)],
+      soon: [start - SOON_BEFORE_MIN, start - SOON_LATEST_BEFORE_MIN],
+    };
+    for (const [kind, [from, until]] of Object.entries(windows)) {
+      if (b.reminded?.[kind]) continue;
+      if (now >= from && now < until && created <= from - FRESH_BOOKING_MIN) due.push({ booking: b, kind });
+    }
+  }
+  return due;
+}
+
+export async function markReminded(booking, kind) {
+  booking.reminded = { ...booking.reminded, [kind]: true };
+  await save();
+}
+
 // Marks a window as taken, e.g. booked by phone. Returns 'ok' | 'taken' | 'no-slot'.
 export async function block(date, time) {
   if (!slotsFor(date).includes(time)) return 'no-slot';
   if (bookedCount(date, time) >= CAPACITY) return 'taken';
-  all().push({ date, time, blocked: true, createdAt: new Date().toISOString() });
+  all().push({ date, time, blocked: true, createdAt: new Date(Date.now()).toISOString() });
   await save();
   return 'ok';
 }

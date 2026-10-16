@@ -101,6 +101,7 @@ speakmotion-bot/
 2. Booking, 5 steps: child's age (5–10 only; other ages get a polite refusal) → day (free days for the next 2 weeks) → time (free 30-minute windows) → child's name → phone
 3. Parent confirms → gets the date, time and address; the booking goes to the teachers' group, the CRM («Заявки») and Google Sheets (tab «Диагностика»)
 4. Each window takes one child; booked windows disappear for other parents. Windows starting in less than 2 hours aren't offered. Weekly windows are set in `SLOTS` in `diagnostics.js`.
+5. Reminders: the evening before at 19:00 (with «✅ Приду» / «❌ Не смогу прийти») and 2 hours before (with «❌ Не смогу прийти»). Cancelling frees the window, tells the teachers' group and marks the Sheets row; a confirmation shows as «✅ подтвердил» in `/diag`. Parents who booked less than an hour before a reminder skip it; a reminder missed while the bot was down isn't sent late at night.
 
 Admin commands: `/diag` — upcoming bookings with «❌ Освободить» buttons (parent cancelled); `/diag_block 19.10 11:00` — mark a window as taken (e.g. booked by phone).
 

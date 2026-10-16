@@ -85,6 +85,24 @@ export const T = {
       'Если планы изменятся — напишите сюда или позвоните: +998 95 030-65-83. Ждём вас! 😊',
     diagRemindForm: 'Вы не закончили запись на диагностику — осталось всего пару шагов 😊',
     diagRemindMenu: 'Хотите узнать языковой профиль ребёнка? Запишитесь на бесплатную диагностику — 30 минут в нашем центре 😊',
+    // Reminders about a booked diagnostic (b = booking: date, time, childName)
+    // The child's name stays in its own line: Russian names can't be declined reliably
+    diagRemindDayBefore: (b) =>
+      `Напоминаем: завтра, ${dateLabel(b.date, 'ru')}, в ${b.time}–${slotEnd(b.time)} — бесплатная диагностика 🔍\n` +
+      `👶 Ребёнок: ${b.childName}\n\n` +
+      `📍 ${ADDRESS}\n${MAP_URL}\n\n` +
+      'Сможете прийти?',
+    diagRemindSoon: (b) =>
+      `Ждём вас сегодня в ${b.time} на бесплатную диагностику 😊\n` +
+      `👶 Ребёнок: ${b.childName}\n\n` +
+      `📍 ${ADDRESS}\n${MAP_URL}`,
+    btnComing: '✅ Приду',
+    btnCantCome: '❌ Не смогу прийти',
+    diagComing: 'Отлично, ждём вас! 😊',
+    diagCancelled:
+      'Запись отменена — спасибо, что предупредили 🙏\n' +
+      'Если захотите выбрать другое время — нажмите «🔍 Записаться на диагностику».',
+    diagAlreadyCancelled: 'Эта запись уже отменена.',
   },
   uz: {
     menu:
@@ -154,6 +172,20 @@ export const T = {
       "Rejalaringiz o'zgarsa — shu yerga yozing yoki qo'ng'iroq qiling: +998 95 030-65-83. Sizni kutamiz! 😊",
     diagRemindForm: 'Diagnostikaga yozilishni yakunlamadingiz — bir necha qadam qoldi 😊',
     diagRemindMenu: "Farzandingizning til profilini bilmoqchimisiz? Bepul diagnostikaga yoziling — markazimizda 30 daqiqa 😊",
+    diagRemindDayBefore: (b) =>
+      `Eslatma: ertaga, ${dateLabel(b.date, 'uz')}, soat ${b.time}–${slotEnd(b.time)} da ${b.childName} uchun bepul diagnostika 🔍\n\n` +
+      `📍 ${ADDRESS}\n${MAP_URL}\n\n` +
+      'Kela olasizmi?',
+    diagRemindSoon: (b) =>
+      `Bugun soat ${b.time} da ${b.childName} uchun bepul diagnostikaga kutamiz 😊\n\n` +
+      `📍 ${ADDRESS}\n${MAP_URL}`,
+    btnComing: '✅ Kelaman',
+    btnCantCome: '❌ Kela olmayman',
+    diagComing: 'Ajoyib, sizni kutamiz! 😊',
+    diagCancelled:
+      'Yozilish bekor qilindi — oldindan aytganingiz uchun rahmat 🙏\n' +
+      "Boshqa vaqtni tanlamoqchi bo'lsangiz — «🔍 Diagnostikaga yozilish» tugmasini bosing.",
+    diagAlreadyCancelled: 'Bu yozilish allaqachon bekor qilingan.',
   },
 };
 
@@ -278,6 +310,21 @@ export function continueKeyboard(lang) {
   return { inline_keyboard: [[{ text: T[lang].btnContinue, callback_data: 'form:continue' }]] };
 }
 
+// Under the evening-before reminder
+export function attendKeyboard(b, lang) {
+  return {
+    inline_keyboard: [[
+      { text: T[lang].btnComing, callback_data: `dok:${b.date}:${b.time}` },
+      { text: T[lang].btnCantCome, callback_data: `dno:${b.date}:${b.time}` },
+    ]],
+  };
+}
+
+// Under the 2-hours-before reminder
+export function cantComeKeyboard(b, lang) {
+  return { inline_keyboard: [[{ text: T[lang].btnCantCome, callback_data: `dno:${b.date}:${b.time}` }]] };
+}
+
 export function applyKeyboard(lang) {
   return { inline_keyboard: [[{ text: mainButtonText(lang), callback_data: 'form:start' }]] };
 }
@@ -354,6 +401,21 @@ export function groupMessage(f, meta) {
     `🕐 Удобное время: ${timeLabel(f.time, 'ru')}`,
     ...contactLines(f, meta),
     f.question ? `❓ Вопрос: ${f.question}` : null,
+  ].filter((line) => line !== null).join('\n');
+}
+
+// b is a stored booking (date, time, childName, age, parentName, phone)
+export function diagCancelMessage(b) {
+  return [
+    b.isTest ? '🧪 ТЕСТ\n' : null,
+    '❌ Родитель отменил запись на диагностику',
+    '',
+    `📅 ${dateLabel(b.date, 'ru')}, ${b.time}–${slotEnd(b.time)}`,
+    `👶 Ребёнок: ${b.childName}, ${ageLabel(b.age, 'ru')}`,
+    `👤 Родитель: ${b.parentName}`,
+    `📞 Телефон: ${b.phone}`,
+    '',
+    'Окно снова свободно для записи.',
   ].filter((line) => line !== null).join('\n');
 }
 

@@ -112,3 +112,27 @@ export function appendDiagnostic(a) {
     a.parentName, a.phone, telegram(a.username), language(a.lang), note(a), String(a.chatId),
   ]);
 }
+
+// Adds a status ("✅ подтвердил", "❌ отменил родитель") to the booking's row.
+// a.date / a.time are the same labels appendDiagnostic wrote.
+export async function noteDiagnostic(a, status) {
+  if (!isConfigured()) return;
+  const { title } = TABS.diagnostics;
+  try {
+    const sheets = await getSheets();
+    const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${title}'!A:K` });
+    const rows = res.data.values ?? [];
+    // Columns: B = date, C = time, J = note, K = chat id
+    const i = rows.findLastIndex((r) => r[1] === a.date && r[2] === a.time && r[10] === String(a.chatId));
+    if (i < 1) return;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${title}'!J${i + 1}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[[rows[i][9], status].filter(Boolean).join(' · ')]] },
+    });
+  } catch (err) {
+    console.error(`[sheets] Failed to update «${title}»:`, err.message);
+  }
+}
