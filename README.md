@@ -103,6 +103,11 @@ speakmotion-bot/
 4. Each window takes one child; booked windows disappear for other parents. Windows starting in less than 2 hours aren't offered. Weekly windows are set in `SLOTS` in `diagnostics.js`.
 5. Reminders: the evening before at 19:00 (with «✅ Приду» / «❌ Не смогу прийти») and 2 hours before (with «❌ Не смогу прийти»). Cancelling frees the window, tells the teachers' group and marks the Sheets row; a confirmation shows as «✅ подтвердил» in `/diag`. Parents who booked less than an hour before a reminder skip it; a reminder missed while the bot was down isn't sent late at night.
 
+6. «🙋 Нет удобного времени» on the day/time screens (and automatically when every window is booked): the parent leaves a convenient time, the child's name and a phone; the request goes to the teachers' topic, the CRM and the «Диагностика» tab (date «⏳ подобрать время»).
+7. Children 11–15 are offered «📝 Оставить номер» (short application about groups); under 5 get a polite refusal.
+
+Parents who never picked a language get answers in the script they write in (Latin → Uzbek, Cyrillic → Russian); inside a form the language never changes, and a language picked with the buttons always wins.
+
 Admin commands: `/diag` — upcoming bookings with «❌ Освободить» buttons (parent cancelled); `/diag_block 19.10 11:00` — mark a window as taken (e.g. booked by phone).
 
 ### Application form (`DIAGNOSTIC_MODE = false`)

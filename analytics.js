@@ -86,8 +86,8 @@ export async function trackStage(chatId, stage) {
   const data = await read();
   ensureUser(data, chatId);
   // A second form attempt shouldn't hide that this parent already applied or booked
-  const done = ['converted', 'diag_booked'].includes(data.users[chatId].stage);
-  if (done && (stage.startsWith('form_') || stage.startsWith('diag_'))) return;
+  const done = ['converted', 'diag_booked', 'diag_waiting'].includes(data.users[chatId].stage);
+  if (done && /^(form|diag|wait)_/.test(stage)) return;
   data.users[chatId].stage = stage;
   data.users[chatId].lastSeen = new Date().toISOString();
   await write(data);
@@ -117,6 +117,21 @@ export async function trackDiagnostic(chatId, booking = {}) {
   data.users[chatId].diagnostic = booking;
   data.totals.diagnostics = (data.totals.diagnostics || 0) + 1;
   data.daily[d].diagnostics = (data.daily[d].diagnostics || 0) + 1;
+
+  await write(data);
+}
+
+// No suitable diagnostic window — left a number so the team calls
+export async function trackDiagnosticWaitlist(chatId, request = {}) {
+  const data = await read();
+  const d = today();
+  ensureDay(data, d);
+  ensureUser(data, chatId);
+
+  data.users[chatId].stage = 'diag_waiting';
+  data.users[chatId].diagnosticRequest = request;
+  data.totals.diagWaitlist = (data.totals.diagWaitlist || 0) + 1;
+  data.daily[d].diagWaitlist = (data.daily[d].diagWaitlist || 0) + 1;
 
   await write(data);
 }
@@ -174,10 +189,12 @@ export async function setReminded(chatId) {
   await write(data);
 }
 
-export async function setLanguage(chatId, lang) {
+// chosen = picked with the language buttons; false = guessed from what they wrote
+export async function setLanguage(chatId, lang, chosen = true) {
   const data = await read();
   ensureUser(data, chatId);
   data.users[chatId].language = lang;
+  if (chosen) data.users[chatId].languageChosen = true;
   await write(data);
 }
 
@@ -216,7 +233,7 @@ export function buildStatsMessage(data) {
   }
 
   const diagnostics = totals.diagnostics || 0;
-  const dropped = totalUsers - totals.converted - diagnostics - totals.escalated - totals.waitlisted;
+  const dropped = totalUsers - totals.converted - diagnostics - (totals.diagWaitlist || 0) - totals.escalated - totals.waitlisted;
 
   // Last 7 days
   const last7 = Object.entries(daily)
@@ -261,6 +278,11 @@ export function buildStatsMessage(data) {
     diag_booked: '🔍 Записаны на диагностику',
     diag_cancelled: '🔍 Отменили запись на диагностику',
     diag_older: '🔍 Ребёнок 11–15: предложили оставить номер, не оставили',
+    wait_time: '🙋 Нет окна: остановились на удобном времени',
+    wait_name: '🙋 Нет окна: остановились на имени ребёнка',
+    wait_phone: '🙋 Нет окна: остановились на телефоне',
+    wait_confirm: '🙋 Нет окна: не нажали «Отправить»',
+    diag_waiting: '🙋 Нет окна: оставили номер, ждут звонка',
     schedule_shown: '📋 (старое) Увидели расписание',
     slot_selected: '✋ (старое) Выбрали слот',
     escalated: '🔔 (старое) Переданы учителю',
@@ -281,6 +303,7 @@ export function buildStatsMessage(data) {
     ``,
     `🔍 Записей на диагностику: ${diagnostics}${pct(diagnostics)}`,
     totals.diagCancelled ? `   из них отменили по напоминанию: ${totals.diagCancelled}` : null,
+    `🙋 Не нашли удобное окно, оставили номер: ${totals.diagWaitlist || 0}`,
     `✅ Заявок отправлено: ${totals.converted}${pct(totals.converted)}`,
     totals.escalated ? `🔔 Эскалаций (старый формат): ${totals.escalated}` : null,
     totals.waitlisted ? `⏳ Лист ожидания (старый формат): ${totals.waitlisted}` : null,

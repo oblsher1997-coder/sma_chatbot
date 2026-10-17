@@ -94,6 +94,22 @@ export const T = {
       'Если планы изменятся — напишите сюда или позвоните: +998 95 030-65-83. Ждём вас! 😊',
     diagRemindForm: 'Вы не закончили запись на диагностику — осталось всего пару шагов 😊',
     btnContinueDiag: '▶️ Продолжить запись',
+    // "No suitable window" → we call and find a time together
+    btnNoTime: '🙋 Нет удобного времени',
+    diagFull:
+      'К сожалению, все окна для диагностики на ближайшие две недели заняты 😔\n' +
+      'Давайте подберём время вместе — ответьте на пару вопросов, и мы позвоним.',
+    waitTime: '🔍 Подберём время · 1/3\n\nКогда вам удобно приходить?',
+    waitName: '🔍 Подберём время · 2/3\n\nКак зовут ребёнка? Напишите имя 👇',
+    waitPhone: '🔍 Подберём время · 3/3\n\nОтправьте номер телефона — нажмите кнопку ниже 👇\nИли напишите номер вручную.',
+    waitConfirm: (f) =>
+      'Проверьте:\n\n' +
+      '🔍 Диагностика — подберём время вместе\n' +
+      `👶 Ребёнок: ${f.childName}, ${ageLabel(f.age, 'ru')}\n` +
+      `🕐 Удобно: ${timeLabel(f.time, 'ru')}\n` +
+      `👤 Родитель: ${f.parentName}\n` +
+      `📞 Телефон: ${f.phone}`,
+    waitDone: 'Спасибо! ✅ Мы позвоним и вместе подберём удобное время для диагностики 😊',
     diagRemindMenu: 'Хотите узнать языковой профиль ребёнка? Запишитесь на бесплатную диагностику — 30 минут в нашем центре 😊',
     // Reminders about a booked diagnostic (b = booking: date, time, childName)
     // The child's name stays in its own line: Russian names can't be declined reliably
@@ -191,6 +207,21 @@ export const T = {
       "Rejalaringiz o'zgarsa — shu yerga yozing yoki qo'ng'iroq qiling: +998 95 030-65-83. Sizni kutamiz! 😊",
     diagRemindForm: 'Diagnostikaga yozilishni yakunlamadingiz — bir necha qadam qoldi 😊',
     btnContinueDiag: '▶️ Davom ettirish',
+    btnNoTime: "🙋 Qulay vaqt yo'q",
+    diagFull:
+      'Afsuski, yaqin ikki haftaga diagnostika uchun barcha vaqtlar band 😔\n' +
+      "Keling, vaqtni birga tanlaymiz — bir nechta savolga javob bering, biz qo'ng'iroq qilamiz.",
+    waitTime: '🔍 Vaqtni tanlaymiz · 1/3\n\nSizga qaysi vaqtda kelish qulay?',
+    waitName: '🔍 Vaqtni tanlaymiz · 2/3\n\nFarzandingizning ismi nima? Ismini yozing 👇',
+    waitPhone: "🔍 Vaqtni tanlaymiz · 3/3\n\nTelefon raqamingizni yuboring — pastdagi tugmani bosing 👇\nYoki raqamni qo'lda yozing.",
+    waitConfirm: (f) =>
+      'Tekshiring:\n\n' +
+      '🔍 Diagnostika — vaqtni birga tanlaymiz\n' +
+      `👶 Farzand: ${f.childName}, ${ageLabel(f.age, 'uz')}\n` +
+      `🕐 Qulay vaqt: ${timeLabel(f.time, 'uz')}\n` +
+      `👤 Ota-ona: ${f.parentName}\n` +
+      `📞 Telefon: ${f.phone}`,
+    waitDone: "Rahmat! ✅ Qo'ng'iroq qilib, diagnostika uchun qulay vaqtni birga tanlaymiz 😊",
     diagRemindMenu: "Farzandingizning til profilini bilmoqchimisiz? Bepul diagnostikaga yoziling — markazimizda 30 daqiqa 😊",
     diagRemindDayBefore: (b) =>
       `Eslatma: ertaga, ${dateLabel(b.date, 'uz')}, soat ${b.time}–${slotEnd(b.time)} da ${b.childName} uchun bepul diagnostika 🔍\n\n` +
@@ -312,12 +343,17 @@ export function timeKeyboard(lang) {
 
 export function dateKeyboard(dates, lang) {
   const buttons = dates.map((date) => ({ text: dateButton(date, lang), callback_data: `ddate:${date}` }));
-  return { inline_keyboard: chunk(buttons, 3) };
+  return { inline_keyboard: [...chunk(buttons, 3), [{ text: T[lang].btnNoTime, callback_data: 'dnone' }]] };
 }
 
 export function slotKeyboard(times, lang) {
   const buttons = times.map((time) => ({ text: `${time}–${slotEnd(time)}`, callback_data: `dslot:${time}` }));
-  return { inline_keyboard: [...chunk(buttons, 2), [{ text: T[lang].btnOtherDay, callback_data: 'dback' }]] };
+  return {
+    inline_keyboard: [
+      ...chunk(buttons, 2),
+      [{ text: T[lang].btnOtherDay, callback_data: 'dback' }, { text: T[lang].btnNoTime, callback_data: 'dnone' }],
+    ],
+  };
 }
 
 export function phoneKeyboard(lang) {
@@ -436,6 +472,20 @@ export function groupMessage(f, meta) {
     `🕐 Удобное время: ${timeLabel(f.time, 'ru')}`,
     ...contactLines(f, meta),
     f.question ? `❓ Вопрос: ${f.question}` : null,
+  ].filter((line) => line !== null).join('\n');
+}
+
+export function waitGroupMessage(f, meta) {
+  return [
+    meta.isTest ? '🧪 ТЕСТ\n' : null,
+    '🙋 Нет удобного окна для диагностики',
+    '',
+    `👶 Ребёнок: ${f.childName}, ${ageLabel(f.age, 'ru')}`,
+    `🕐 Удобное время: ${timeLabel(f.time, 'ru')}`,
+    ...contactLines(f, meta),
+    f.question ? `❓ Вопрос: ${f.question}` : null,
+    '',
+    '📞 Позвоните и подберите время.',
   ].filter((line) => line !== null).join('\n');
 }
 

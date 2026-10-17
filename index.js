@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { chat, resetConversation } from './deepseek.js';
 import {
   trackSession, trackMessage, trackStage, trackConversion, trackDiagnostic, trackDiagnosticCancel,
+  trackDiagnosticWaitlist,
   trackDropout, setReminded, setLanguage, getUserData,
   getStats, buildStatsMessage,
   getAllUserIds, markBlocked,
@@ -16,7 +17,7 @@ import {
   slotKeyboard, phoneKeyboard, confirmKeyboard, continueKeyboard, applyKeyboard,
   attendKeyboard, cantComeKeyboard, diagOtherAgeKeyboard, olderKeyboard,
   parseAge, parseTime, parseClock, normalizePhone, isApplyIntent, looksLikeQuestion,
-  groupMessage, diagGroupMessage, diagCancelMessage,
+  groupMessage, diagGroupMessage, diagCancelMessage, waitGroupMessage,
 } from './form.js';
 import {
   freeDates, freeTimes, book, upcoming, release, block, slotEnd, slotsFor, isValidAge, parseDayMonth,
@@ -71,19 +72,25 @@ async function sendLeadToCrm(lead) {
 // format ≤30, notes ≤2000).
 function crmLead(f, { lang, username, chatId, isTest }) {
   const age = ageLabel(f.age, 'ru');
-  const isDiag = f.kind === 'diag';
-  const when = isDiag ? `${dateLabel(f.date, 'ru')}, ${f.slot}–${slotEnd(f.slot)}` : timeLabel(f.time, 'ru');
+  const time = timeLabel(f.time, 'ru');
+  const slot = f.kind === 'diag' ? `${dateLabel(f.date, 'ru')}, ${f.slot}–${slotEnd(f.slot)}` : null;
+  const interest = {
+    app: `${age} · ${time}`,
+    diag: `Диагностика · ${f.date ? dateButton(f.date, 'ru') : ''} ${f.slot}`,
+    wait: `Диагностика · нет окна · ${time}`,
+  }[f.kind];
   return {
     childName: `${isTest ? '🧪 ТЕСТ · ' : ''}${f.childName}`.slice(0, 150),
     parentName: f.parentName.slice(0, 150),
     phone: f.phone,
-    groupInterest: (isDiag ? `Диагностика · ${dateButton(f.date, 'ru')} ${f.slot}` : `${age} · ${when}`).slice(0, 100),
-    format: isDiag ? 'диагностика' : 'офлайн',
+    groupInterest: interest.slice(0, 100),
+    format: f.kind === 'app' ? 'офлайн' : 'диагностика',
     source: 'telegram',
     notes: [
-      isDiag ? `🔍 Диагностика: ${when}` : null,
+      slot ? `🔍 Диагностика: ${slot}` : null,
+      f.kind === 'wait' ? '🙋 Не нашли удобного окна для диагностики — позвоните и подберите время' : null,
       `👶 Возраст: ${age}`,
-      isDiag ? null : `🕐 Удобное время: ${when}`,
+      f.kind === 'diag' ? null : `🕐 Удобное время: ${time}`,
       f.question ? `❓ Вопрос: ${f.question}` : null,
       `💬 Telegram: ${username ? `@${username}` : '—'}`,
       `🌐 Язык: ${lang === 'uz' ? 'узбекский' : 'русский'}`,
@@ -94,13 +101,16 @@ function crmLead(f, { lang, username, chatId, isTest }) {
 
 // Forms in progress: chatId → { kind, step, age, childName, time | date+slot, parentName, phone, question }
 // The menu's main button opens MAIN_KIND; the other kind stays in code for DIAGNOSTIC_MODE = false.
+// 'wait' = no suitable diagnostic window: the age is carried over, we call to find a time.
 const MAIN_KIND = DIAGNOSTIC_MODE ? 'diag' : 'app';
 const FLOW = {
   app: ['age', 'name', 'time', 'phone', 'confirm'],
   diag: ['age', 'date', 'slot', 'name', 'phone', 'confirm'],
+  wait: ['time', 'name', 'phone', 'confirm'],
 };
+const STAGE_PREFIX = { app: 'form', diag: 'diag', wait: 'wait' };
 // Stages after which a parent shouldn't be reminded or re-funnelled
-const DONE_STAGES = ['converted', 'diag_booked'];
+const DONE_STAGES = ['converted', 'diag_booked', 'diag_waiting'];
 
 const forms = new Map();
 // Chosen language per chat (cached here, persisted in analytics.json)
@@ -166,6 +176,20 @@ async function getLang(chatId) {
   return lang;
 }
 
+// Parents who never picked a language (most came before the language menu)
+// get answers in the script they write in: Latin → Uzbek, Cyrillic → Russian.
+async function detectLanguage(chatId, text) {
+  const user = await getUserData(chatId);
+  if (user?.languageChosen) return;
+  const latin = (text.match(/[a-z]/gi) ?? []).length;
+  const cyrillic = /[а-яё]/i.test(text);
+  if (cyrillic === (latin >= 4)) return; // both scripts, or too little text to tell ("ok")
+  const lang = cyrillic ? 'ru' : 'uz';
+  if (lang === (await getLang(chatId))) return;
+  langs.set(chatId, lang);
+  await setLanguage(chatId, lang, false);
+}
+
 function fullName(person) {
   return [person?.first_name, person?.last_name].filter(Boolean).join(' ') || '—';
 }
@@ -197,7 +221,7 @@ function scheduleUserReminder(chatId) {
     const form = forms.get(chatId);
     let text, markup;
     if (form) {
-      const diag = form.kind === 'diag';
+      const diag = form.kind !== 'app';
       text = diag ? T[lang].diagRemindForm : T[lang].remindForm;
       markup = continueKeyboard(lang, diag ? T[lang].btnContinueDiag : undefined);
     } else if (user.stage === 'diag_older') {
@@ -234,9 +258,9 @@ async function sendStep(chatId) {
       case 'date': {
         const dates = freeDates();
         if (!dates.length) {
-          forms.delete(chatId);
-          await bot.telegram.sendMessage(chatId, t.diagNoDates, { reply_markup: mainKeyboard(lang) });
-          return;
+          // Everything is booked — find a time together instead of losing the parent
+          await bot.telegram.sendMessage(chatId, t.diagFull);
+          return waitForTime(chatId, form);
         }
         prompt = [t.diagDate, dateKeyboard(dates, lang)];
         break;
@@ -255,6 +279,13 @@ async function sendStep(chatId) {
       case 'phone': prompt = [t.diagPhone, phoneKeyboard(lang)]; break;
       case 'confirm': prompt = [t.diagConfirm(form), confirmKeyboard(lang, t.btnBook)]; break;
     }
+  } else if (form.kind === 'wait') {
+    prompt = {
+      time: [t.waitTime, timeKeyboard(lang)],
+      name: [t.waitName, null],
+      phone: [t.waitPhone, phoneKeyboard(lang)],
+      confirm: [t.waitConfirm(form), confirmKeyboard(lang)],
+    }[form.step];
   } else {
     prompt = {
       age: [t.stepAge, ageKeyboard(lang)],
@@ -275,12 +306,18 @@ async function sendStep(chatId) {
 async function enterStep(chatId) {
   const form = forms.get(chatId);
   if (!form) return;
-  if (!isAdminId(chatId)) await trackStage(chatId, `${form.kind === 'diag' ? 'diag' : 'form'}_${form.step}`);
+  if (!isAdminId(chatId)) await trackStage(chatId, `${STAGE_PREFIX[form.kind]}_${form.step}`);
   await sendStep(chatId);
 }
 
 async function startForm(chatId, question = null, kind = MAIN_KIND) {
   forms.set(chatId, { kind, step: 'age', question: question || null });
+  await enterStep(chatId);
+}
+
+// No suitable diagnostic window: keep the age, ask a convenient time, name and phone.
+async function waitForTime(chatId, form) {
+  forms.set(chatId, { kind: 'wait', step: 'time', age: form.age, question: form.question });
   await enterStep(chatId);
 }
 
@@ -417,6 +454,34 @@ async function submitDiagnostic(ctx, form) {
     question: form.question,
   });
   if (!meta.isTest) await trackDiagnostic(chatId, { ...answers, lang });
+}
+
+async function submitWaitlist(ctx, form) {
+  const chatId = ctx.chat.id;
+  forms.delete(chatId);
+  cancelReminder(chatId);
+
+  const lang = await getLang(chatId);
+  const meta = { lang, username: ctx.from?.username, chatId, isTest: isAdminId(chatId) };
+  // Last-resort record in the PM2 logs in case every channel below fails
+  const { step, kind, ...answers } = form;
+  console.log('[diag-waitlist]', JSON.stringify({ ...answers, ...meta }));
+
+  await ctx.reply(T[lang].waitDone, { reply_markup: mainKeyboard(lang) });
+
+  await notifyTeachers(chatId, waitGroupMessage(form, meta));
+  void sendLeadToCrm(crmLead(form, meta));
+  await appendDiagnostic({
+    ...meta,
+    date: '⏳ подобрать время',
+    time: timeLabel(form.time, 'ru'),
+    childName: form.childName,
+    age: ageLabel(form.age, 'ru'),
+    parentName: form.parentName,
+    phone: form.phone,
+    question: ['🙋 нет удобного окна', form.question].filter(Boolean).join(' · '),
+  });
+  if (!meta.isTest) await trackDiagnosticWaitlist(chatId, { ...answers, lang });
 }
 
 // Free text while a form is in progress. A valid answer moves the form on;
@@ -575,15 +640,23 @@ async function handleFormCallback(ctx, data) {
     return enterStep(chatId);
   }
 
+  if (data === 'dnone') {
+    if (form.kind !== 'diag' || !['date', 'slot'].includes(form.step)) return;
+    await markChosen(ctx, T[lang].btnNoTime);
+    return waitForTime(chatId, form);
+  }
+
   if (data === 'form:send') {
     if (form.step !== 'confirm') return;
     form.step = 'sending'; // a second tap while submitting is ignored
     await clearButtons(ctx);
-    return form.kind === 'diag' ? submitDiagnostic(ctx, form) : submitApplication(ctx, form);
+    const submit = { app: submitApplication, diag: submitDiagnostic, wait: submitWaitlist }[form.kind];
+    return submit(ctx, form);
   }
 
   if (data === 'form:restart') {
-    forms.set(chatId, { kind: form.kind, step: 'age', question: form.question });
+    // A 'wait' form keeps the age it inherited from the diagnostic booking
+    forms.set(chatId, { kind: form.kind, step: FLOW[form.kind][0], age: form.kind === 'wait' ? form.age : undefined, question: form.question });
     await clearButtons(ctx);
     return enterStep(chatId);
   }
@@ -937,6 +1010,8 @@ bot.on('text', async (ctx) => {
 
   try {
     const form = forms.get(chatId);
+    // Outside a form only: a child's name typed in Latin mustn't switch a Russian form
+    if (!form && !isAdmin) await detectLanguage(chatId, text);
 
     // Main button or "Диагностика" — mid-form, pick up where they left off
     if (MAIN_BUTTONS.includes(text) || (form && isApplyIntent(text))) {
