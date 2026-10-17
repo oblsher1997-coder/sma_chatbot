@@ -104,8 +104,8 @@ speakmotion-bot/
 5. Reminders: the evening before at 19:00 (with «✅ Приду» / «❌ Не смогу прийти») and 2 hours before (with «❌ Не смогу прийти»). Cancelling frees the window, tells the teachers' group and marks the Sheets row; a confirmation shows as «✅ подтвердил» in `/diag`. Parents who booked less than an hour before a reminder skip it; a reminder missed while the bot was down isn't sent late at night.
 
 6. «🙋 Нет удобного времени» on the day/time screens (and automatically when every window is booked): the parent leaves a convenient time, the child's name and a phone; the request goes to the teachers' topic, the CRM and the «Диагностика» tab (date «⏳ подобрать время»).
-8. A parent who already has an upcoming booking and opens the booking again (button, word or AI) sees it with «✅ Всё верно» / «🔄 Перенести на другое время» / «👶 Записать другого ребёнка». Moving keeps the child and phone, asks only a new day and time, and releases the old window only after the new one is confirmed. The AI is told about the parent's bookings, so "am I booked?" gets the date and time.
 7. Children 11–15 are offered «📝 Оставить номер» (short application about groups); under 5 get a polite refusal.
+8. A parent who already has an upcoming booking and opens the booking again (button, word or AI) sees it with «✅ Всё верно» / «🔄 Перенести на другое время» / «👶 Записать другого ребёнка». Moving keeps the child and phone, asks only a new day and time, and releases the old window only after the new one is confirmed. The AI is told about the parent's bookings, so "am I booked?" gets the date and time.
 
 Parents who never picked a language get answers in the script they write in (Latin → Uzbek, Cyrillic → Russian); inside a form the language never changes, and a language picked with the buttons always wins.
 
