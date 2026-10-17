@@ -143,11 +143,20 @@ export async function release(date, time) {
   return removed;
 }
 
-// ─── Parent's own booking (from reminder buttons) ───────────────────────────
+// ─── Parent's own bookings ───────────────────────────────────────────────────
 // The chat id must match, so a parent can only touch their own booking.
-function findOwn(date, time, chatId) {
+export function findOwn(date, time, chatId) {
   return all().find((b) =>
     b.date === date && b.time === time && !b.blocked && String(b.chatId) === String(chatId));
+}
+
+// This parent's bookings that haven't started yet, soonest first.
+export function ownUpcoming(chatId) {
+  const now = tashkentNow();
+  return all()
+    .filter((b) => !b.blocked && String(b.chatId) === String(chatId) &&
+      (b.date > now.date || (b.date === now.date && toMin(b.time) > now.minutes)))
+    .sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
 }
 
 export async function confirmOwn(date, time, chatId) {

@@ -62,7 +62,8 @@ In that message write 1–2 short sentences ending with something like "Дава
 ## ACTION — children 11–15 only: start the short form (age, child's name, convenient time, phone) so the team calls about groups
 <ACTION>{"type":"START_APPLICATION","question":"[short summary of the parent's specific question in Russian, or empty string]"}</ACTION>`;
 
-function buildSystemPrompt(lang) {
+// parentContext: what we know about this parent (e.g. their bookings), written by index.js
+function buildSystemPrompt(lang, parentContext = '') {
   const currentDate = new Date().toLocaleDateString('ru-RU', { timeZone: 'Asia/Tashkent', year: 'numeric', month: 'long', day: 'numeric' });
   const langName = lang === 'uz' ? 'Uzbek (Latin script)' : 'Russian';
 
@@ -159,7 +160,12 @@ Add the tag on its own line at the very END of your message. Only ONE tag per me
 ## HARD RULES
 - Never list group numbers or exact times of groups or diagnostic windows.
 - Never invent facts that are not in this knowledge base — if unsure, offer the NEXT STEP or our phone number.
-- Never compare children or make parents feel judged.`;
+- Never compare children or make parents feel judged.${parentContext ? `
+
+---
+
+## THIS PARENT
+${parentContext}` : ''}`;
 }
 
 const ADMIN_SYSTEM_PROMPT = `You are the SpeakMotion Academy bot assistant speaking with the academy administrator.
@@ -200,7 +206,7 @@ function stripAction(text) {
   return text.replace(/<ACTION>[\s\S]*?<\/ACTION>/, '').trim();
 }
 
-export async function chat(chatId, userMessage, isAdmin = false, lang = 'ru') {
+export async function chat(chatId, userMessage, isAdmin = false, lang = 'ru', parentContext = '') {
   const history = getHistory(chatId);
 
   history.push({ role: 'user', content: userMessage });
@@ -209,7 +215,7 @@ export async function chat(chatId, userMessage, isAdmin = false, lang = 'ru') {
     history.splice(0, history.length - MAX_HISTORY);
   }
 
-  const systemPrompt = isAdmin ? ADMIN_SYSTEM_PROMPT : buildSystemPrompt(lang);
+  const systemPrompt = isAdmin ? ADMIN_SYSTEM_PROMPT : buildSystemPrompt(lang, parentContext);
 
   const response = await client.chat.completions.create({
     model: 'deepseek-chat',

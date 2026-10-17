@@ -15,13 +15,13 @@ import {
   menuText, remindMenuText,
   langKeyboard, mainKeyboard, ageKeyboard, diagAgeKeyboard, timeKeyboard, dateKeyboard,
   slotKeyboard, phoneKeyboard, confirmKeyboard, continueKeyboard, applyKeyboard,
-  attendKeyboard, cantComeKeyboard, diagOtherAgeKeyboard, olderKeyboard,
+  attendKeyboard, cantComeKeyboard, diagOtherAgeKeyboard, olderKeyboard, existingKeyboard,
   parseAge, parseTime, parseClock, normalizePhone, isApplyIntent, looksLikeQuestion,
-  groupMessage, diagGroupMessage, diagCancelMessage, waitGroupMessage,
+  groupMessage, diagGroupMessage, diagCancelMessage, diagMovedGroupMessage, waitGroupMessage,
 } from './form.js';
 import {
   freeDates, freeTimes, book, upcoming, release, block, slotEnd, slotsFor, isValidAge, parseDayMonth,
-  confirmOwn, cancelOwn, dueReminders, markReminded,
+  confirmOwn, cancelOwn, dueReminders, markReminded, findOwn, ownUpcoming,
 } from './diagnostics.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -241,7 +241,10 @@ function scheduleUserReminder(chatId) {
 // ─── Forms ───────────────────────────────────────────────────────────────────
 function advance(form) {
   const flow = FLOW[form.kind];
-  form.step = flow[flow.indexOf(form.step) + 1];
+  let next = flow.indexOf(form.step) + 1;
+  // Moving a booking keeps the child's name and phone — straight to confirmation
+  while (form.reschedule && ['name', 'phone'].includes(flow[next])) next++;
+  form.step = flow[next];
 }
 
 // Sends the question for the current step and restarts the reminder timer.
@@ -277,7 +280,9 @@ async function sendStep(chatId) {
       }
       case 'name': prompt = [t.diagName, null]; break;
       case 'phone': prompt = [t.diagPhone, phoneKeyboard(lang)]; break;
-      case 'confirm': prompt = [t.diagConfirm(form), confirmKeyboard(lang, t.btnBook)]; break;
+      case 'confirm':
+        prompt = [t.diagConfirm(form), confirmKeyboard(lang, form.reschedule ? t.btnConfirmMove : t.btnBook)];
+        break;
     }
   } else if (form.kind === 'wait') {
     prompt = {
@@ -310,8 +315,36 @@ async function enterStep(chatId) {
   await sendStep(chatId);
 }
 
-async function startForm(chatId, question = null, kind = MAIN_KIND) {
+// newChild: skip the "you already have a booking" check (parent asked to book another child)
+async function startForm(chatId, question = null, kind = MAIN_KIND, { newChild = false } = {}) {
+  if (kind === 'diag' && !newChild) {
+    const own = ownUpcoming(chatId);
+    if (own.length) return showExistingBookings(chatId, own);
+  }
   forms.set(chatId, { kind, step: 'age', question: question || null });
+  await enterStep(chatId);
+}
+
+// Already booked: confirm it, move it, or book another child — instead of a duplicate.
+async function showExistingBookings(chatId, own) {
+  forms.delete(chatId);
+  const lang = await getLang(chatId);
+  await bot.telegram.sendMessage(chatId, T[lang].diagExisting(own), { reply_markup: existingKeyboard(own, lang) });
+}
+
+// Move a booking: the child, age and phone stay; the old window is released
+// only once the new one is confirmed (see submitDiagnostic).
+async function startReschedule(chatId, b) {
+  forms.set(chatId, {
+    kind: 'diag',
+    step: 'date',
+    age: b.age,
+    childName: b.childName,
+    parentName: b.parentName,
+    phone: b.phone,
+    question: null,
+    reschedule: { date: b.date, time: b.time },
+  });
   await enterStep(chatId);
 }
 
@@ -441,8 +474,16 @@ async function submitDiagnostic(ctx, form) {
 
   await ctx.reply(T[lang].diagDone(form), { reply_markup: mainKeyboard(lang) });
 
-  await notifyTeachers(chatId, diagGroupMessage(form, meta));
-  void sendLeadToCrm(crmLead(form, meta));
+  const moved = form.reschedule;
+  if (moved) {
+    // The new window is booked — now release the old one
+    await cancelOwn(moved.date, moved.time, chatId);
+    await notifyTeachers(chatId, diagMovedGroupMessage(form, meta));
+    await noteDiagnostic(sheetLabels({ ...moved, chatId }), `🔄 перенесено на ${dateButton(form.date, 'ru')} ${form.slot}`);
+  } else {
+    await notifyTeachers(chatId, diagGroupMessage(form, meta));
+    void sendLeadToCrm(crmLead(form, meta));
+  }
   await appendDiagnostic({
     ...meta,
     date: dateLabel(form.date, 'ru'),
@@ -451,9 +492,9 @@ async function submitDiagnostic(ctx, form) {
     age: ageLabel(form.age, 'ru'),
     parentName: form.parentName,
     phone: form.phone,
-    question: form.question,
+    question: moved ? `🔄 перенос с ${dateButton(moved.date, 'ru')} ${moved.time}` : form.question,
   });
-  if (!meta.isTest) await trackDiagnostic(chatId, { ...answers, lang });
+  if (!meta.isTest && !moved) await trackDiagnostic(chatId, { ...answers, lang });
 }
 
 async function submitWaitlist(ctx, form) {
@@ -564,6 +605,29 @@ async function handleFormCallback(ctx, data) {
     return data === 'form:continue' && forms.has(chatId) ? sendStep(chatId) : startForm(chatId);
   }
 
+  // "You already have a booking" buttons
+  if (data === 'dkeep') {
+    await clearButtons(ctx);
+    const lang = await getLang(chatId);
+    await ctx.reply(T[lang].diagComing, { reply_markup: mainKeyboard(lang) });
+    return;
+  }
+  if (data === 'dnew') {
+    await clearButtons(ctx);
+    return startForm(chatId, null, 'diag', { newChild: true });
+  }
+  if (data.startsWith('dmove:')) {
+    // dmove:YYYY-MM-DD:HH:MM
+    await clearButtons(ctx);
+    const own = findOwn(data.slice(6, 16), data.slice(17), chatId);
+    if (!own) {
+      const lang = await getLang(chatId);
+      await ctx.reply(T[lang].diagAlreadyCancelled, { reply_markup: mainKeyboard(lang) });
+      return;
+    }
+    return startReschedule(chatId, own);
+  }
+
   if (data.startsWith('older:')) {
     await clearButtons(ctx);
     return startOlderForm(chatId, Number(data.slice(6)));
@@ -655,9 +719,14 @@ async function handleFormCallback(ctx, data) {
   }
 
   if (data === 'form:restart') {
+    await clearButtons(ctx);
+    // Moving a booking: pick the day again — never restart as a brand-new booking
+    if (form.reschedule) {
+      forms.set(chatId, { ...form, step: 'date', date: undefined, slot: undefined });
+      return enterStep(chatId);
+    }
     // A 'wait' form keeps the age it inherited from the diagnostic booking
     forms.set(chatId, { kind: form.kind, step: FLOW[form.kind][0], age: form.kind === 'wait' ? form.age : undefined, question: form.question });
-    await clearButtons(ctx);
     return enterStep(chatId);
   }
 }
@@ -719,6 +788,30 @@ async function handleAttendanceCallback(ctx, data) {
 }
 
 // ─── AI (free-text questions) ────────────────────────────────────────────────
+// Bookings happen through buttons, outside the AI chat — so tell the AI what
+// this parent already has, or it answers "am I booked?" by opening a new booking.
+async function parentContext(chatId) {
+  const lines = [];
+  const own = ownUpcoming(chatId);
+  if (own.length) {
+    lines.push('Already booked for the free diagnostic:');
+    for (const b of own) {
+      lines.push(`- ${dateLabel(b.date, 'ru')}, ${b.time}–${slotEnd(b.time)} — ${b.childName} (${ageLabel(b.age, 'ru')})`);
+    }
+    lines.push(
+      'If they ask whether they are booked or about their booking, confirm it with the date and time. ' +
+      'Do not start a new booking for the same child. To change the time they tap «🔍 Записаться на диагностику» ' +
+      'and choose «🔄 Перенести на другое время»; to cancel, they tap «❌ Не смогу прийти» in the reminder the evening before, ' +
+      'or call +998 95 030-65-83.',
+    );
+  }
+  const user = await getUserData(chatId);
+  if (user?.stage === 'diag_waiting') {
+    lines.push('They already left a request for a diagnostic time (no suitable window was free); our team will call them to find a time.');
+  }
+  return lines.join('\n');
+}
+
 // Returns the AI's action for parents; admin chats never trigger actions.
 async function askAI(ctx, text) {
   const chatId = ctx.chat.id;
@@ -726,7 +819,8 @@ async function askAI(ctx, text) {
   const lang = await getLang(chatId);
   try {
     await ctx.sendChatAction('typing');
-    const { message, action } = await chat(chatId, text, isAdmin, lang);
+    const context = isAdmin ? '' : await parentContext(chatId);
+    const { message, action } = await chat(chatId, text, isAdmin, lang, context);
     await sendReply(ctx, message, { reply_markup: mainKeyboard(lang) });
     return isAdmin ? null : action;
   } catch (err) {

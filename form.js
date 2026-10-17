@@ -83,12 +83,14 @@ export const T = {
     diagConfirm: (f) =>
       'Проверьте запись:\n\n' +
       `🔍 Диагностика: ${dateLabel(f.date, 'ru')}, ${f.slot}–${slotEnd(f.slot)}\n` +
+      (f.reschedule ? `🔄 Перенос с: ${dateLabel(f.reschedule.date, 'ru')}, ${f.reschedule.time}\n` : '') +
       `👶 Ребёнок: ${f.childName}, ${ageLabel(f.age, 'ru')}\n` +
       `👤 Родитель: ${f.parentName}\n` +
       `📞 Телефон: ${f.phone}`,
     btnBook: '✅ Записаться',
+    btnConfirmMove: '✅ Перенести',
     diagDone: (f) =>
-      'Вы записаны на диагностику ✅\n\n' +
+      (f.reschedule ? 'Запись перенесена ✅\n\n' : 'Вы записаны на диагностику ✅\n\n') +
       `📅 ${dateLabel(f.date, 'ru')}, ${f.slot}–${slotEnd(f.slot)}\n` +
       `📍 ${ADDRESS}\n${MAP_URL}\n\n` +
       'Если планы изменятся — напишите сюда или позвоните: +998 95 030-65-83. Ждём вас! 😊',
@@ -129,6 +131,15 @@ export const T = {
       'Запись отменена — спасибо, что предупредили 🙏\n' +
       'Если захотите выбрать другое время — нажмите «🔍 Записаться на диагностику».',
     diagAlreadyCancelled: 'Эта запись уже отменена.',
+    // Parent opens the booking again while already booked (bs = their bookings)
+    diagExisting: (bs) =>
+      'У вас уже есть запись на диагностику ✅\n\n' +
+      bs.map((b) => `📅 ${dateLabel(b.date, 'ru')}, ${b.time}–${slotEnd(b.time)} — ${b.childName}`).join('\n') +
+      `\n📍 ${ADDRESS}`,
+    btnKeep: '✅ Всё верно',
+    btnMove: '🔄 Перенести на другое время',
+    btnMoveOne: (b) => `🔄 Перенести: ${dateButton(b.date, 'ru')} ${b.time} (${b.childName})`,
+    btnNewChild: '👶 Записать другого ребёнка',
   },
   uz: {
     menu:
@@ -196,12 +207,14 @@ export const T = {
     diagConfirm: (f) =>
       'Yozilishni tekshiring:\n\n' +
       `🔍 Diagnostika: ${dateLabel(f.date, 'uz')}, ${f.slot}–${slotEnd(f.slot)}\n` +
+      (f.reschedule ? `🔄 Avvalgi vaqt: ${dateLabel(f.reschedule.date, 'uz')}, ${f.reschedule.time}\n` : '') +
       `👶 Farzand: ${f.childName}, ${ageLabel(f.age, 'uz')}\n` +
       `👤 Ota-ona: ${f.parentName}\n` +
       `📞 Telefon: ${f.phone}`,
     btnBook: '✅ Yozilish',
+    btnConfirmMove: "✅ Ko'chirish",
     diagDone: (f) =>
-      'Siz diagnostikaga yozildingiz ✅\n\n' +
+      (f.reschedule ? "Yozilish ko'chirildi ✅\n\n" : 'Siz diagnostikaga yozildingiz ✅\n\n') +
       `📅 ${dateLabel(f.date, 'uz')}, ${f.slot}–${slotEnd(f.slot)}\n` +
       `📍 ${ADDRESS}\n${MAP_URL}\n\n` +
       "Rejalaringiz o'zgarsa — shu yerga yozing yoki qo'ng'iroq qiling: +998 95 030-65-83. Sizni kutamiz! 😊",
@@ -237,6 +250,14 @@ export const T = {
       'Yozilish bekor qilindi — oldindan aytganingiz uchun rahmat 🙏\n' +
       "Boshqa vaqtni tanlamoqchi bo'lsangiz — «🔍 Diagnostikaga yozilish» tugmasini bosing.",
     diagAlreadyCancelled: 'Bu yozilish allaqachon bekor qilingan.',
+    diagExisting: (bs) =>
+      'Sizda allaqachon diagnostikaga yozilish bor ✅\n\n' +
+      bs.map((b) => `📅 ${dateLabel(b.date, 'uz')}, ${b.time}–${slotEnd(b.time)} — ${b.childName}`).join('\n') +
+      `\n📍 ${ADDRESS}`,
+    btnKeep: "✅ Hammasi to'g'ri",
+    btnMove: "🔄 Boshqa vaqtga ko'chirish",
+    btnMoveOne: (b) => `🔄 Ko'chirish: ${dateButton(b.date, 'uz')} ${b.time} (${b.childName})`,
+    btnNewChild: '👶 Boshqa farzandni yozish',
   },
 };
 
@@ -377,6 +398,21 @@ export function continueKeyboard(lang, text = T[lang].btnContinue) {
   return { inline_keyboard: [[{ text, callback_data: 'form:continue' }]] };
 }
 
+// Under "you already have a booking"
+export function existingKeyboard(bookings, lang) {
+  const t = T[lang];
+  const move = bookings.length === 1
+    ? [[{ text: t.btnMove, callback_data: `dmove:${bookings[0].date}:${bookings[0].time}` }]]
+    : bookings.map((b) => [{ text: t.btnMoveOne(b), callback_data: `dmove:${b.date}:${b.time}` }]);
+  return {
+    inline_keyboard: [
+      [{ text: t.btnKeep, callback_data: 'dkeep' }],
+      ...move,
+      [{ text: t.btnNewChild, callback_data: 'dnew' }],
+    ],
+  };
+}
+
 // Under the evening-before reminder
 export function attendKeyboard(b, lang) {
   return {
@@ -472,6 +508,19 @@ export function groupMessage(f, meta) {
     `🕐 Удобное время: ${timeLabel(f.time, 'ru')}`,
     ...contactLines(f, meta),
     f.question ? `❓ Вопрос: ${f.question}` : null,
+  ].filter((line) => line !== null).join('\n');
+}
+
+// f.reschedule = the old booking's { date, time }
+export function diagMovedGroupMessage(f, meta) {
+  return [
+    meta.isTest ? '🧪 ТЕСТ\n' : null,
+    '🔄 Перенос записи на диагностику',
+    '',
+    `Было: ${dateLabel(f.reschedule.date, 'ru')}, ${f.reschedule.time}–${slotEnd(f.reschedule.time)}`,
+    `Стало: ${dateLabel(f.date, 'ru')}, ${f.slot}–${slotEnd(f.slot)}`,
+    `👶 Ребёнок: ${f.childName}, ${ageLabel(f.age, 'ru')}`,
+    ...contactLines(f, meta),
   ].filter((line) => line !== null).join('\n');
 }
 
