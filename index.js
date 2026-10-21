@@ -1245,8 +1245,16 @@ if (ADMIN_CHAT_ID) {
 prepareSheets().catch((err) => console.error('[sheets] Failed to prepare tabs:', err.message));
 setInterval(() => sendDiagnosticReminders().catch((err) => console.error('[diag-reminder] error:', err.message)), 60_000);
 
-bot.launch({ dropPendingUpdates: true });
-console.log('✅ SpeakMotion bot is running');
+// Telegram is sometimes unreachable from the server for a moment. Polling rides
+// that out on its own, but a failed start would leave the bot silent, so retry it.
+function launch() {
+  bot.launch({ dropPendingUpdates: true }, () => console.log('✅ SpeakMotion bot is running'))
+    .catch((err) => {
+      console.error('[bot] Failed to start, retrying in 10 s:', err.message);
+      setTimeout(launch, 10_000);
+    });
+}
+launch();
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
