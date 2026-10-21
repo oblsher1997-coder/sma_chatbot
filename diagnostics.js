@@ -6,20 +6,35 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BOOKINGS_PATH = path.join(__dirname, 'diagnostics.json');
 
-// Windows by weekday (0 = Sunday), Tashkent time. Each window lasts 30 minutes.
-const SLOTS = {
-  1: ['11:00', '11:30', '13:30', '18:30'], // Dushanba
-  2: ['13:30', '14:30', '15:00'],          // Seshanba
-  3: ['11:00', '11:30', '13:30', '18:30'], // Chorshanba
-  4: ['13:30', '14:30', '15:00'],          // Payshanba
-  5: ['11:00', '11:30', '13:30', '18:30'], // Juma
-};
+// Each teacher's windows by weekday (0 = Sunday), Tashkent time, from the date
+// they start. Each window lasts 30 minutes and takes one child per teacher who
+// has it, so a time two teachers share takes two children.
+const TEACHERS = [
+  {
+    slots: {
+      1: ['11:00', '11:30', '13:30', '18:30'], // Dushanba
+      2: ['13:30', '14:30', '15:00'],          // Seshanba
+      3: ['11:00', '11:30', '13:30', '18:30'], // Chorshanba
+      4: ['13:30', '14:30', '15:00'],          // Payshanba
+      5: ['11:00', '11:30', '13:30', '18:30'], // Juma
+    },
+  },
+  {
+    from: '2026-10-26',
+    slots: {
+      1: ['14:00', '14:30', '15:00'],
+      2: ['11:10', '11:40', '12:10', '12:40', '14:00', '14:30', '15:00', '15:30'],
+      3: ['14:00', '14:30', '15:00'],
+      4: ['11:10', '11:40', '12:10', '12:40'],
+      5: ['10:00', '10:30', '11:00', '11:30', '12:00', '13:30'],
+    },
+  },
+];
 export const MIN_AGE = 5;
 export const MAX_AGE = 10;
 const DURATION_MIN = 30;
 const DAYS_AHEAD = 14;
 const MIN_LEAD_MIN = 120; // no booking less than 2 hours before the window starts
-const CAPACITY = 1;       // children per window
 const TASHKENT_UTC_OFFSET_MIN = 5 * 60; // Asia/Tashkent is UTC+5 all year
 
 // Reminders: the evening before (only between these times, so a reminder missed
@@ -77,8 +92,18 @@ export function isValidAge(age) {
   return typeof age === 'number' && age >= MIN_AGE && age <= MAX_AGE;
 }
 
+// Every working teacher's windows on a date; a time two teachers share is listed twice.
+function teacherSlots(date) {
+  return TEACHERS
+    .filter((t) => !t.from || date >= t.from)
+    .flatMap((t) => t.slots[weekday(date)] ?? []);
+}
+
+// Children a window takes: one per teacher who has it that day.
+const capacity = (date, time) => teacherSlots(date).filter((t) => t === time).length;
+
 export function slotsFor(date) {
-  return SLOTS[weekday(date)] ?? [];
+  return [...new Set(teacherSlots(date))].sort();
 }
 
 // "19.10" → '2026-10-19' (this year, or next year if that date is long past).
@@ -98,12 +123,12 @@ function bookedCount(date, time) {
   return all().filter((b) => b.date === date && b.time === time).length;
 }
 
-// Free windows on a date: not booked and not starting too soon.
+// Free windows on a date: a place left and not starting too soon.
 export function freeTimes(date) {
   const now = tashkentNow();
   if (date < now.date) return [];
   return slotsFor(date).filter((time) =>
-    bookedCount(date, time) < CAPACITY &&
+    bookedCount(date, time) < capacity(date, time) &&
     (date > now.date || toMin(time) >= now.minutes + MIN_LEAD_MIN));
 }
 
@@ -134,11 +159,13 @@ export function upcoming() {
     .sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
 }
 
-// Frees a window (parent cancelled). Returns the removed entries.
-export async function release(date, time) {
-  const removed = all().filter((b) => b.date === date && b.time === time);
-  if (!removed.length) return [];
-  bookings = all().filter((b) => !(b.date === date && b.time === time));
+// Frees one place in a window (parent cancelled): the entry created at `id`, or
+// with no id (buttons sent before windows had two places) the first one there.
+// Returns the removed entry, or null.
+export async function release(date, time, id) {
+  const removed = all().find((b) => b.date === date && b.time === time && (!id || b.createdAt === id));
+  if (!removed) return null;
+  bookings = all().filter((b) => b !== removed);
   await save();
   return removed;
 }
@@ -207,10 +234,10 @@ export async function markReminded(booking, kind) {
   await save();
 }
 
-// Marks a window as taken, e.g. booked by phone. Returns 'ok' | 'taken' | 'no-slot'.
+// Takes one place in a window, e.g. booked by phone. Returns 'ok' | 'taken' | 'no-slot'.
 export async function block(date, time) {
   if (!slotsFor(date).includes(time)) return 'no-slot';
-  if (bookedCount(date, time) >= CAPACITY) return 'taken';
+  if (bookedCount(date, time) >= capacity(date, time)) return 'taken';
   all().push({ date, time, blocked: true, createdAt: new Date(Date.now()).toISOString() });
   await save();
   return 'ok';

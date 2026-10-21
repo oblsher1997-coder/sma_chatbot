@@ -900,9 +900,10 @@ bot.command('diag', async (ctx) => {
 
   await ctx.reply(lines.join('\n'), {
     reply_markup: {
+      // One button per booking: a window two teachers share can hold two children
       inline_keyboard: list.map((b) => [{
-        text: `❌ Освободить ${dateButton(b.date, 'ru')} ${b.time}`,
-        callback_data: `dfree:${b.date}:${b.time}`,
+        text: `❌ Освободить ${dateButton(b.date, 'ru')} ${b.time} — ${b.blocked ? 'вручную' : b.childName}`,
+        callback_data: `dfree:${b.date}:${b.time}:${b.createdAt ?? ''}`,
       }]),
     },
   });
@@ -921,7 +922,11 @@ bot.command('diag_block', async (ctx) => {
 
   const result = await block(date, time);
   const when = `${dateLabel(date, 'ru')}, ${time}`;
-  if (result === 'ok') await ctx.reply(`⛔ Окно ${when} занято — в боте его больше не видно.`);
+  if (result === 'ok') {
+    await ctx.reply(freeTimes(date).includes(time)
+      ? `⛔ В окне ${when} занято одно место — второе ещё видно в боте. Чтобы занять и его, повторите команду.`
+      : `⛔ Окно ${when} занято — в боте его больше не видно.`);
+  }
   else if (result === 'taken') await ctx.reply(`Окно ${when} уже занято.`);
   else {
     const times = slotsFor(date);
@@ -1192,19 +1197,19 @@ bot.on('callback_query', async (ctx) => {
     return;
   }
   if (data.startsWith('dfree:') && isAdminChat(ctx)) {
-    // dfree:YYYY-MM-DD:HH:MM
+    // dfree:YYYY-MM-DD:HH:MM:<booking's createdAt> (no createdAt on older buttons)
     const date = data.slice(6, 16);
-    const time = data.slice(17);
-    const removed = await release(date, time);
+    const time = data.slice(17, 22);
+    const removed = await release(date, time, data.slice(23));
     const when = `${dateLabel(date, 'ru')}, ${time}`;
-    await ctx.answerCbQuery(removed.length ? 'Освобождено' : 'Уже свободно');
-    if (removed.length) {
-      await ctx.reply(`✅ Окно ${when} освобождено — родители снова могут на него записаться.`);
-      const child = removed.find((b) => !b.blocked);
-      if (child && !child.isTest) {
-        await notifyTeachers(child.chatId, `❌ Запись на диагностику отменена: ${when} (${child.childName}, ${child.phone})`);
+    await ctx.answerCbQuery(removed ? 'Освобождено' : 'Уже свободно');
+    if (removed) {
+      const who = removed.blocked ? 'ручная блокировка' : removed.childName;
+      await ctx.reply(`✅ Окно ${when} освобождено (${who}) — родители снова могут на него записаться.`);
+      if (!removed.blocked && !removed.isTest) {
+        await notifyTeachers(removed.chatId, `❌ Запись на диагностику отменена: ${when} (${removed.childName}, ${removed.phone})`);
       }
-      if (child) await noteDiagnostic(sheetLabels(child), '❌ освобождено админом');
+      if (!removed.blocked) await noteDiagnostic(sheetLabels(removed), '❌ освобождено админом');
     }
     return;
   }
