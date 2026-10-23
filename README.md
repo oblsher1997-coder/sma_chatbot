@@ -95,7 +95,11 @@ speakmotion-bot/
 
 ## How the Bot Works
 
-### Free diagnostic (current mode, `DIAGNOSTIC_MODE = true` in `form.js`)
+### Diagnostic paused (current mode, `DIAGNOSTIC_MODE = false` in `form.js`)
+
+The menu offers the application again: «📝 Оставить заявку» → age, child's name, convenient time, phone → we call and invite the family to a free consultation. A parent asking for the diagnostic (the old «🔍 Записаться на диагностику» button, a short «диагностика», «👶 Записать другого ребёнка», or a question to the AI) hears that the places for the nearest days are taken and gets «📝 Оставить заявку». Existing bookings stay: reminders, «✅ Приду» / «❌ Не смогу прийти», moving a booking and `/diag` keep working.
+
+### Free diagnostic (`DIAGNOSTIC_MODE = true` in `form.js`)
 
 1. Parent opens the bot → picks a language → menu: «🔍 Записаться на диагностику» or «❓ Задать вопрос»
 2. Booking, 5 steps: child's age (5–10 only; other ages get a polite refusal) → day (free days for the next 2 weeks) → time (free 30-minute windows) → child's name → phone

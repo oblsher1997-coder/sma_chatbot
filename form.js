@@ -3,9 +3,10 @@
 // bot state and Telegram calls live in index.js.
 import { slotEnd } from './diagnostics.js';
 
-// Temporary: the menu offers the free diagnostic instead of the general
-// application (consultation). Set to false to bring the application back.
-export const DIAGNOSTIC_MODE = true;
+// true: the menu offers the free diagnostic booking. false: the diagnostic is
+// paused — the menu offers the general application (consultation) again, and a
+// parent asking for the diagnostic hears that the nearest days are taken.
+export const DIAGNOSTIC_MODE = false;
 
 const ADDRESS = '1-й Нукусский проезд, 19А, Ташкент';
 const MAP_URL = 'https://yandex.ru/maps?text=41.298249,69.289735&si=r3h04gaghvupu1pqh7kdeykn38';
@@ -71,6 +72,10 @@ export const T = {
       'Для детей 11–15 лет у нас есть группы английского. Оставьте номер — мы позвоним, расскажем о занятиях и подберём удобное время 😊',
     btnLeaveNumber: '📝 Оставить номер',
     olderRemind: 'Хотите узнать о группах английского для детей 11–15 лет? Оставьте номер — мы позвоним и всё расскажем 😊',
+    // Diagnostic paused (DIAGNOSTIC_MODE = false)
+    diagPaused:
+      'К сожалению, места на диагностику на ближайшие дни уже заняты 😔\n\n' +
+      'Но вы можете записаться на наши курсы: оставьте заявку — мы позвоним, подберём удобное расписание и пригласим на бесплатную консультацию 😊',
     diagDate: '🔍 Диагностика · 2/5\n\nВыберите удобный день:',
     diagNoDates:
       'К сожалению, на ближайшие две недели все окна для диагностики заняты 😔\n' +
@@ -127,9 +132,8 @@ export const T = {
     btnComing: '✅ Приду',
     btnCantCome: '❌ Не смогу прийти',
     diagComing: 'Отлично, ждём вас! 😊',
-    diagCancelled:
-      'Запись отменена — спасибо, что предупредили 🙏\n' +
-      'Если захотите выбрать другое время — нажмите «🔍 Записаться на диагностику».',
+    diagCancelled: 'Запись отменена — спасибо, что предупредили 🙏',
+    diagRebook: 'Если захотите выбрать другое время — нажмите «🔍 Записаться на диагностику».',
     diagAlreadyCancelled: 'Эта запись уже отменена.',
     // Parent opens the booking again while already booked (bs = their bookings)
     diagExisting: (bs) =>
@@ -195,6 +199,9 @@ export const T = {
       "11–15 yoshli bolalar uchun bizda ingliz tili guruhlari bor. Raqamingizni qoldiring — qo'ng'iroq qilib, mashg'ulotlar haqida gapirib beramiz va qulay vaqtni tanlaymiz 😊",
     btnLeaveNumber: '📝 Raqam qoldirish',
     olderRemind: "11–15 yoshli bolalar uchun ingliz tili guruhlari haqida bilmoqchimisiz? Raqamingizni qoldiring — qo'ng'iroq qilib, hammasini aytib beramiz 😊",
+    diagPaused:
+      "Afsuski, yaqin kunlarga diagnostika uchun joylar band bo'lib qoldi 😔\n\n" +
+      "Lekin kurslarimizga yozilishingiz mumkin: ariza qoldiring — biz qo'ng'iroq qilamiz, qulay jadval tanlaymiz va bepul konsultatsiyaga taklif qilamiz 😊",
     diagDate: '🔍 Diagnostika · 2/5\n\nQulay kunni tanlang:',
     diagNoDates:
       'Afsuski, yaqin ikki haftaga diagnostika uchun barcha vaqtlar band 😔\n' +
@@ -246,9 +253,8 @@ export const T = {
     btnComing: '✅ Kelaman',
     btnCantCome: '❌ Kela olmayman',
     diagComing: 'Ajoyib, sizni kutamiz! 😊',
-    diagCancelled:
-      'Yozilish bekor qilindi — oldindan aytganingiz uchun rahmat 🙏\n' +
-      "Boshqa vaqtni tanlamoqchi bo'lsangiz — «🔍 Diagnostikaga yozilish» tugmasini bosing.",
+    diagCancelled: 'Yozilish bekor qilindi — oldindan aytganingiz uchun rahmat 🙏',
+    diagRebook: "Boshqa vaqtni tanlamoqchi bo'lsangiz — «🔍 Diagnostikaga yozilish» tugmasini bosing.",
     diagAlreadyCancelled: 'Bu yozilish allaqachon bekor qilingan.',
     diagExisting: (bs) =>
       'Sizda allaqachon diagnostikaga yozilish bor ✅\n\n' +
@@ -483,6 +489,12 @@ export function isApplyIntent(text) {
   const t = text.toLowerCase().trim();
   if (t.length > 40 || t.includes('?')) return false;
   return APPLY_KEYWORDS.some((k) => t.includes(k));
+}
+
+// The diagnostic button (parents may still have it) or "диагностика" — the
+// diagnostic itself, not the general application.
+export function isDiagnosticIntent(text) {
+  return text === T.ru.btnDiag || text === T.uz.btnDiag || /диагност|diagnost/i.test(text);
 }
 
 export function looksLikeQuestion(text) {

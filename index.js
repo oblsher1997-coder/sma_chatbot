@@ -16,7 +16,7 @@ import {
   langKeyboard, mainKeyboard, ageKeyboard, diagAgeKeyboard, timeKeyboard, dateKeyboard,
   slotKeyboard, phoneKeyboard, confirmKeyboard, continueKeyboard, applyKeyboard,
   attendKeyboard, cantComeKeyboard, diagOtherAgeKeyboard, olderKeyboard, existingKeyboard,
-  parseAge, parseTime, parseClock, normalizePhone, isApplyIntent, looksLikeQuestion,
+  parseAge, parseTime, parseClock, normalizePhone, isApplyIntent, isDiagnosticIntent, looksLikeQuestion,
   groupMessage, diagGroupMessage, diagCancelMessage, diagMovedGroupMessage, waitGroupMessage,
 } from './form.js';
 import {
@@ -321,8 +321,17 @@ async function startForm(chatId, question = null, kind = MAIN_KIND, { newChild =
     const own = ownUpcoming(chatId);
     if (own.length) return showExistingBookings(chatId, own);
   }
+  if (kind === 'diag' && !DIAGNOSTIC_MODE) return offerApplication(chatId);
   forms.set(chatId, { kind, step: 'age', question: question || null });
   await enterStep(chatId);
+}
+
+// Diagnostic paused: the nearest days are taken — offer the application (consultation) instead.
+async function offerApplication(chatId) {
+  forms.delete(chatId);
+  const lang = await getLang(chatId);
+  await bot.telegram.sendMessage(chatId, T[lang].diagPaused, { reply_markup: applyKeyboard(lang) });
+  scheduleUserReminder(chatId);
 }
 
 // Already booked: confirm it, move it, or book another child — instead of a duplicate.
@@ -781,7 +790,8 @@ async function handleAttendanceCallback(ctx, data) {
     return;
   }
   console.log(`[diag-cancel] ${chatId} cancelled ${date} ${time}`);
-  await ctx.reply(T[lang].diagCancelled, { reply_markup: mainKeyboard(lang) });
+  const cancelled = DIAGNOSTIC_MODE ? `${T[lang].diagCancelled}\n${T[lang].diagRebook}` : T[lang].diagCancelled;
+  await ctx.reply(cancelled, { reply_markup: mainKeyboard(lang) });
   await notifyTeachers(chatId, diagCancelMessage(own));
   await noteDiagnostic(sheetLabels(own), '❌ отменил родитель');
   if (!own.isTest) await trackDiagnosticCancel(chatId);
@@ -800,7 +810,8 @@ async function parentContext(chatId) {
     }
     lines.push(
       'If they ask whether they are booked or about their booking, confirm it with the date and time. ' +
-      'Do not start a new booking for the same child. To change the time they tap «🔍 Записаться на диагностику» ' +
+      'Do not start a new booking for the same child. To change the time they ' +
+      `${DIAGNOSTIC_MODE ? 'tap «🔍 Записаться на диагностику»' : 'write «диагностика»'} ` +
       'and choose «🔄 Перенести на другое время»; to cancel, they tap «❌ Не смогу прийти» in the reminder the evening before, ' +
       'or call +998 95 030-65-83.',
     );
@@ -839,7 +850,7 @@ async function handleAction(chatId, action) {
     case 'START_DIAGNOSTIC':
       // Already filling the form — the caller repeats the current step instead
       if (!forms.has(chatId)) {
-        const kind = action.type === 'START_DIAGNOSTIC' ? MAIN_KIND : 'app';
+        const kind = action.type === 'START_DIAGNOSTIC' ? 'diag' : 'app';
         await startForm(chatId, action.question, kind);
       }
       break;
@@ -1112,10 +1123,13 @@ bot.on('text', async (ctx) => {
     // Outside a form only: a child's name typed in Latin mustn't switch a Russian form
     if (!form && !isAdmin) await detectLanguage(chatId, text);
 
+    // While the diagnostic is paused, its old button and "диагностика" still ask for the diagnostic
+    const kind = isDiagnosticIntent(text) ? 'diag' : MAIN_KIND;
+
     // Main button or "Диагностика" — mid-form, pick up where they left off
     if (MAIN_BUTTONS.includes(text) || (form && isApplyIntent(text))) {
       if (form) await sendStep(chatId);
-      else await startForm(chatId);
+      else await startForm(chatId, null, kind);
       return;
     }
 
@@ -1133,7 +1147,7 @@ bot.on('text', async (ctx) => {
     }
 
     if (isApplyIntent(text)) {
-      await startForm(chatId);
+      await startForm(chatId, null, kind);
       return;
     }
 
