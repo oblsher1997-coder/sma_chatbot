@@ -143,6 +143,7 @@ export const T = {
     btnKeep: '✅ Всё верно',
     btnMove: '🔄 Перенести на другое время',
     btnMoveOne: (b) => `🔄 Перенести: ${dateButton(b.date, 'ru')} ${b.time} (${b.childName})`,
+    diagMoveByPhone: 'Чтобы перенести запись, позвоните нам: +998 95 030-65-83 😊',
     btnNewChild: '👶 Записать другого ребёнка',
   },
   uz: {
@@ -263,6 +264,7 @@ export const T = {
     btnKeep: "✅ Hammasi to'g'ri",
     btnMove: "🔄 Boshqa vaqtga ko'chirish",
     btnMoveOne: (b) => `🔄 Ko'chirish: ${dateButton(b.date, 'uz')} ${b.time} (${b.childName})`,
+    diagMoveByPhone: "Yozilishni ko'chirish uchun bizga qo'ng'iroq qiling: +998 95 030-65-83 😊",
     btnNewChild: '👶 Boshqa farzandni yozish',
   },
 };
@@ -404,7 +406,7 @@ export function continueKeyboard(lang, text = T[lang].btnContinue) {
   return { inline_keyboard: [[{ text, callback_data: 'form:continue' }]] };
 }
 
-// Under "you already have a booking"
+// Under "you already have a booking". While the diagnostic is paused, moving is by phone only.
 export function existingKeyboard(bookings, lang) {
   const t = T[lang];
   const move = bookings.length === 1
@@ -413,7 +415,7 @@ export function existingKeyboard(bookings, lang) {
   return {
     inline_keyboard: [
       [{ text: t.btnKeep, callback_data: 'dkeep' }],
-      ...move,
+      ...(DIAGNOSTIC_MODE ? move : []),
       [{ text: t.btnNewChild, callback_data: 'dnew' }],
     ],
   };

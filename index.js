@@ -338,7 +338,8 @@ async function offerApplication(chatId) {
 async function showExistingBookings(chatId, own) {
   forms.delete(chatId);
   const lang = await getLang(chatId);
-  await bot.telegram.sendMessage(chatId, T[lang].diagExisting(own), { reply_markup: existingKeyboard(own, lang) });
+  const text = DIAGNOSTIC_MODE ? T[lang].diagExisting(own) : `${T[lang].diagExisting(own)}\n\n${T[lang].diagMoveByPhone}`;
+  await bot.telegram.sendMessage(chatId, text, { reply_markup: existingKeyboard(own, lang) });
 }
 
 // Move a booking: the child, age and phone stay; the old window is released
@@ -628,6 +629,12 @@ async function handleFormCallback(ctx, data) {
   if (data.startsWith('dmove:')) {
     // dmove:YYYY-MM-DD:HH:MM
     await clearButtons(ctx);
+    if (!DIAGNOSTIC_MODE) {
+      // Paused: moving is by phone only (the button may be in an older message)
+      const lang = await getLang(chatId);
+      await ctx.reply(T[lang].diagMoveByPhone, { reply_markup: mainKeyboard(lang) });
+      return;
+    }
     const own = findOwn(data.slice(6, 16), data.slice(17), chatId);
     if (!own) {
       const lang = await getLang(chatId);
@@ -811,9 +818,8 @@ async function parentContext(chatId) {
     lines.push(
       'If they ask whether they are booked or about their booking, confirm it with the date and time. ' +
       'Do not start a new booking for the same child. To change the time they ' +
-      `${DIAGNOSTIC_MODE ? 'tap «🔍 Записаться на диагностику»' : 'write «диагностика»'} ` +
-      'and choose «🔄 Перенести на другое время»; to cancel, they tap «❌ Не смогу прийти» in the reminder the evening before, ' +
-      'or call +998 95 030-65-83.',
+      `${DIAGNOSTIC_MODE ? 'tap «🔍 Записаться на диагностику» and choose «🔄 Перенести на другое время»' : 'call +998 95 030-65-83'}; ` +
+      'to cancel, they tap «❌ Не смогу прийти» in the reminder the evening before, or call +998 95 030-65-83.',
     );
   }
   const user = await getUserData(chatId);

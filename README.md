@@ -97,7 +97,7 @@ speakmotion-bot/
 
 ### Diagnostic paused (current mode, `DIAGNOSTIC_MODE = false` in `form.js`)
 
-The menu offers the application again: «📝 Оставить заявку» → age, child's name, convenient time, phone → we call and invite the family to a free consultation. A parent asking for the diagnostic (the old «🔍 Записаться на диагностику» button, a short «диагностика», «👶 Записать другого ребёнка», or a question to the AI) hears that the places for the nearest days are taken and gets «📝 Оставить заявку». Existing bookings stay: reminders, «✅ Приду» / «❌ Не смогу прийти», moving a booking and `/diag` keep working.
+The menu offers the application again: «📝 Оставить заявку» → age, child's name, convenient time, phone → we call and invite the family to a free consultation. A parent asking for the diagnostic (the old «🔍 Записаться на диагностику» button, a short «диагностика», «👶 Записать другого ребёнка», or a question to the AI) hears that the places for the nearest days are taken and gets «📝 Оставить заявку». Existing bookings stay: reminders, «✅ Приду» / «❌ Не смогу прийти» and `/diag` keep working. Moving a booking is by phone only: the «🔄 Перенести» button is hidden, and an older one answers with the phone number.
 
 ### Free diagnostic (`DIAGNOSTIC_MODE = true` in `form.js`)
 
